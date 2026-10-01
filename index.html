@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>監獄からの脱出 - STAGE1 牢屋</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 上部UI（仕様33） -->
+  <div id="topbar">
+    <button id="btn-menu" class="ui-btn">☰</button>
+    <div class="topbar-title">監獄からの脱出　―　牢屋</div>
+    <button id="btn-memo" class="ui-btn memo-top-btn">📝メモ</button>
+    <button id="btn-hint" class="ui-btn">💡ヒント</button>
+  </div>
+
+  <!-- メインゲーム画面（仕様32） -->
+  <div id="stage">
+    <div id="stage-image-wrap">
+      <img id="stage-image" alt="game screen">
+      <div id="hotspot-layer"></div>
+      <div id="hotspot-debug-draw-layer"></div>
+      <div id="anim-overlay"></div>
+    </div>
+    <button id="btn-left" class="nav-arrow left">◀</button>
+    <button id="btn-right" class="nav-arrow right">▶</button>
+    <button id="btn-back" class="nav-back">戻る</button>
+    <div id="message-toast"></div>
+  </div>
+
+  <!-- アイテム欄（仕様36〜37） -->
+  <div id="inventory-bar" class="inventory-bar"></div>
+
+  <!-- バナー広告予約領域（仕様44〜45） -->
+  <div id="ad-banner">AD</div>
+</div>
+
+<!-- 全ステージ共通 フローティングメモ -->
+<div id="memo-window" class="memo-window" aria-hidden="true">
+  <div id="memo-drag-handle" class="memo-header">
+    <span class="memo-title">メモ</span>
+    <div class="memo-actions">
+      <button id="memo-opacity" type="button">薄く表示</button>
+      <button id="memo-clear" type="button">全消去</button>
+      <button id="memo-close" type="button" aria-label="メモを閉じる">×</button>
+    </div>
+  </div>
+  <textarea id="memo-textarea" class="memo-textarea" placeholder="謎の手掛かりを自由にメモできます"></textarea>
+  <div id="memo-resize-handle" class="memo-resize-handle" aria-hidden="true"></div>
+</div>
+
+<!-- アイテム詳細画面（仕様38〜40） -->
+<div id="item-detail" class="overlay">
+  <div class="overlay-panel">
+    <button id="item-detail-close" class="overlay-close">×</button>
+    <div class="item-detail-name" id="item-detail-name"></div>
+    <img id="item-detail-image" class="item-detail-image" alt="item">
+    <div id="item-detail-hint" class="item-detail-hint"></div>
+    <div id="item-detail-inventory" class="inventory-bar"></div>
+  </div>
+</div>
+
+<!-- ヒントパネル（仕様83） -->
+<div id="hint-panel" class="overlay">
+  <div class="overlay-panel">
+    <button id="hint-close" class="overlay-close">×</button>
+    <h2>ヒント</h2>
+    <div id="hint-body"></div>
+  </div>
+</div>
+
+<!-- メニュー（仕様33：後から拡張する仮ボタン／仕様64-65：開発用デバッグ機能） -->
+<div id="menu-panel" class="overlay small">
+  <div class="overlay-panel">
+    <button id="menu-close" class="overlay-close" aria-label="メニューを閉じる">×</button>
+    <h2>メニュー</h2>
+    <div class="audio-settings">
+      <button id="btn-bgm-toggle" class="btn-secondary">BGM：ON</button>
+      <button id="btn-se-toggle" class="btn-secondary">効果音：ON</button>
+    </div>
+    <button id="btn-ad-privacy" class="btn-secondary" style="display:none;">広告プライバシー設定</button>
+    <div id="admob-diagnostic" class="debug-status show">AdMob診断：未初期化</div>
+    <button id="btn-reset" class="btn-secondary">進行状況をリセット（開発用）</button>
+    <button id="btn-debug-hotspots" class="btn-secondary">ホットスポット赤枠：OFF（開発用）</button>
+    <button id="btn-debug-coordinates" class="btn-secondary">座標範囲選択：OFF（開発用）</button>
+    <button id="btn-debug-status" class="btn-secondary">デバッグ情報表示切替（開発用）</button>
+    <div id="debug-status" class="debug-status"></div>
+    <p class="menu-note">テスト用ショートカット（本番では非表示にする想定）</p>
+    <button id="btn-jump-mirror" class="btn-secondary">鏡謎テスト状態へジャンプ</button>
+    <button id="btn-jump-finalkey" class="btn-secondary">最終鍵回収状態へジャンプ</button>
+    <button id="btn-jump-corridor-start" class="btn-secondary">廊下開始状態へジャンプ</button>
+    <button id="btn-jump-corridor-power" class="btn-secondary">665入力テスト状態へジャンプ</button>
+    <button id="btn-jump-guard-keypad" class="btn-secondary">看守室テンキーテスト状態へジャンプ</button>
+    <button id="btn-jump-guardroom-start" class="btn-secondary">STAGE3開始状態へジャンプ</button>
+    <button id="btn-jump-guard-monitor" class="btn-secondary">監視モニターテスト状態へジャンプ</button>
+    <button id="btn-jump-guard-maze" class="btn-secondary">迷路テスト状態へジャンプ</button>
+    <button id="btn-jump-solitary-start" class="btn-secondary">STAGE4開始状態へジャンプ（A/B/C所持）</button>
+    <button id="btn-jump-loading-start" class="btn-secondary">STAGE5開始状態へジャンプ（A/C所持）</button>
+    <button id="btn-jump-loading-final" class="btn-secondary">STAGE5最終謎クリア状態へジャンプ</button>
+    <p class="menu-note">設定・その他メニューは後日追加予定。</p>
+    <button id="btn-menu-return" class="btn-primary">ゲームに戻る</button>
+  </div>
+</div>
+
+<!-- ホットスポット座標調整パネル（開発用） -->
+<div id="hotspot-coordinate-panel" class="hotspot-coordinate-panel">
+  <div class="coord-head">Hotspot 座標調整</div>
+  <div id="coord-screen" class="coord-screen">-</div>
+  <div id="coord-values" class="coord-values">画像上をドラッグして範囲を選択</div>
+  <div class="coord-actions">
+    <button id="btn-coord-copy" type="button">コピー</button>
+    <button id="btn-coord-clear" type="button">クリア</button>
+    <button id="btn-coord-hotspots" type="button">赤枠 ON/OFF</button>
+  </div>
+</div>
+
+
+<!-- クリア画面 -->
+<div id="clear-overlay" class="overlay">
+  <div class="overlay-panel clear-panel">
+    <div id="clear-text"></div>
+    <p class="clear-sub">すべてのステージをクリアしました。</p>
+    <div id="clear-stats" class="clear-stats">
+      <div><span>クリア時間</span><strong id="clear-time">--:--:--</strong></div>
+      <div><span>見たヒント</span><strong id="clear-hint-count">0</strong></div>
+      <div><span>見た回答</span><strong id="clear-answer-count">0</strong></div>
+    </div>
+    <button id="btn-clear-return" class="btn-primary">タイトルに戻る</button>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/corridor/corridor-data.js"></script>
+<script src="js/guard-room/guard-room-data.js"></script>
+<script src="js/solitary/solitary-data.js"></script>
+<script src="js/loading/loading-data.js"></script>
+<script src="js/state.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/ads.js"></script>
+<script src="js/hints.js"></script>
+<script src="js/main.js"></script>
+<script src="js/corridor/corridor-actions.js"></script>
+<script src="js/corridor/corridor-ui.js"></script>
+<script src="js/guard-room/guard-room-actions.js"></script>
+<script src="js/guard-room/guard-room-ui.js"></script>
+<script src="js/solitary/solitary-actions.js"></script>
+<script src="js/solitary/solitary-ui.js"></script>
+<script src="js/loading/loading-actions.js"></script>
+<script src="js/loading/loading-ui.js"></script>
+</body>
+</html>
