@@ -1,0 +1,19 @@
+{
+  "name": "d-prison-escape",
+  "version": "1.0.0",
+  "private": true,
+  "description": "iOS escape game d-prison-escape",
+  "scripts": {
+    "prepare:www": "node scripts/prepare-www.mjs",
+    "cap:add:ios": "npm run prepare:www && npx cap add ios --packagemanager SPM",
+    "cap:sync:ios": "npm run prepare:www && npx cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor-community/admob": "8.1.0",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2"
+  }
+}

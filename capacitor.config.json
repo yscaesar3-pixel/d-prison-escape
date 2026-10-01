@@ -1,0 +1,9 @@
+{
+  "appId": "com.yutaXXX.d-prison-escape",
+  "appName": "監獄からの脱出",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "automatic",
+    "preferredContentMode": "mobile"
+  }
+}
