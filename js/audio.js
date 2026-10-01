@@ -33,6 +33,9 @@ const AUDIO_VOLUME = {
 let audioUnlocked = false;
 let currentBgmKey = null;
 let bgmAudio = null;
+let appAudioActive = true;
+let audioLifecycleInitialized = false;
+const activeSeAudios = new Set();
 
 function ensureAudioSettings() {
   const defaults = { bgmEnabled: true, seEnabled: true };
@@ -80,7 +83,55 @@ function initAudioSystem() {
     saveState();
   });
 
+  initAudioLifecycleHandling();
   updateAudioSettingLabels();
+}
+
+function initAudioLifecycleHandling() {
+  if (audioLifecycleInitialized) return;
+  audioLifecycleInitialized = true;
+
+  const setActive = (isActive) => {
+    const nextActive = !!isActive;
+    if (appAudioActive === nextActive) return;
+    appAudioActive = nextActive;
+
+    if (!appAudioActive) {
+      if (bgmAudio && !bgmAudio.paused) bgmAudio.pause();
+      activeSeAudios.forEach((audio) => {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch (e) { /* noop */ }
+      });
+      activeSeAudios.clear();
+      return;
+    }
+
+    // 復帰時は現在の曲・再生位置を維持したまま再開する。
+    if (ensureAudioSettings().bgmEnabled && audioUnlocked) {
+      syncBgmForCurrentScreen(true);
+    }
+  };
+
+  // Capacitor実機ではアプリのactive/inactiveを最優先で監視する。
+  try {
+    const AppPlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if (AppPlugin && typeof AppPlugin.addListener === 'function') {
+      AppPlugin.addListener('appStateChange', ({ isActive }) => setActive(isActive));
+    }
+  } catch (e) {
+    console.warn('[audio] appStateChange listener registration failed:', e);
+  }
+
+  // WebKit側の状態変化も併用し、ロック画面・バックグラウンド遷移を確実に拾う。
+  document.addEventListener('visibilitychange', () => {
+    setActive(document.visibilityState === 'visible');
+  });
+  window.addEventListener('pagehide', () => setActive(false));
+  window.addEventListener('pageshow', () => {
+    if (document.visibilityState === 'visible') setActive(true);
+  });
 }
 
 function updateAudioSettingLabels() {
@@ -113,7 +164,7 @@ function setBgmTrack(key, forcePlay = false) {
     bgmAudio.load();
   }
 
-  if (!settings.bgmEnabled || !audioUnlocked) {
+  if (!settings.bgmEnabled || !audioUnlocked || !appAudioActive) {
     bgmAudio.pause();
     return;
   }
@@ -136,14 +187,18 @@ function playEndingBgm() {
 
 function playSE(key, volumeScale = 1) {
   const settings = ensureAudioSettings();
-  if (!settings.seEnabled || !audioUnlocked) return;
+  if (!settings.seEnabled || !audioUnlocked || !appAudioActive) return;
   const src = AUDIO_PATHS.se[key];
   if (!src) return;
 
   const audio = new Audio(src);
   audio.preload = 'auto';
   audio.volume = Math.max(0, Math.min(1, AUDIO_VOLUME.se * volumeScale));
-  audio.play().catch(() => {});
+  activeSeAudios.add(audio);
+  const cleanup = () => activeSeAudios.delete(audio);
+  audio.addEventListener('ended', cleanup, { once: true });
+  audio.addEventListener('error', cleanup, { once: true });
+  audio.play().catch(() => cleanup());
 }
 
 function playHotspotTapSE(action) {

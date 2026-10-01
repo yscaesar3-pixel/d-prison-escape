@@ -11,6 +11,25 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/* iOS実機: ゲーム画面の長押し選択・コピーUI・画像ドラッグを無効化する。 */
+body,
+body * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+body img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+/* メモ入力欄だけは通常どおり文字選択・編集を許可する。 */
+#memo-textarea {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+
+
 html, body {
   height: 100%;
   margin: 0;
@@ -116,6 +135,9 @@ html, body {
   border-radius: 8px;
   font-size: 13px;
   display: none;
+  z-index: 200;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 
 #message-toast {
