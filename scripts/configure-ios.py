@@ -3,6 +3,8 @@ import plistlib
 import re
 
 APP_ID = "ca-app-pub-8174756915786797~9805262814"
+APPLE_BUNDLE_ID = "com.yutaXXX.d-prison-escape"
+CAPACITOR_INTERNAL_APP_ID = "com.yutaXXX.dprisonescape"
 PLIST = Path("ios/App/App/Info.plist")
 PBXPROJ = Path("ios/App/App.xcodeproj/project.pbxproj")
 
@@ -45,6 +47,30 @@ if PBXPROJ.exists():
     text = PBXPROJ.read_text(encoding="utf-8")
     text = re.sub(r'TARGETED_DEVICE_FAMILY = "?1,2"?;', 'TARGETED_DEVICE_FAMILY = 1;', text)
     text = re.sub(r'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;', 'IPHONEOS_DEPLOYMENT_TARGET = 15.0;', text)
+    # Capacitor does not accept hyphens in appId, so the generated project uses a
+    # validation-safe internal ID. For the actual iOS app, restore the Apple
+    # Developer/App Store Connect Bundle ID here before code signing.
+    text = re.sub(
+        r'PRODUCT_BUNDLE_IDENTIFIER = [^;]+;',
+        f'PRODUCT_BUNDLE_IDENTIFIER = {APPLE_BUNDLE_ID};',
+        text,
+    )
     PBXPROJ.write_text(text, encoding="utf-8")
 
+# Keep the embedded Capacitor runtime config consistent with the real iOS Bundle ID.
+native_cap_config = Path("ios/App/App/capacitor.config.json")
+if native_cap_config.exists():
+    try:
+        import json
+        native_data = json.loads(native_cap_config.read_text(encoding="utf-8"))
+        if native_data.get("appId") == CAPACITOR_INTERNAL_APP_ID:
+            native_data["appId"] = APPLE_BUNDLE_ID
+            native_cap_config.write_text(
+                json.dumps(native_data, ensure_ascii=False, separators=(",", ":")),
+                encoding="utf-8",
+            )
+    except Exception as exc:
+        print(f"Warning: could not update native capacitor.config.json: {exc}")
+
+print(f"Configured iOS Bundle ID: {APPLE_BUNDLE_ID}")
 print("Configured iOS: AdMob App ID, SKAdNetwork IDs, iPhone-only, portrait, iOS 15+, encryption declaration.")
