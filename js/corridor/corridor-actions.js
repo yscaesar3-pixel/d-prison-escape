@@ -6,16 +6,6 @@
 
 // ---------- STAGE1→STAGE2 接続で使う値はstate.js側で初期化済み ----------
 
-// 廊下用デバッグボタンはmain.jsのbindGlobalUI()を変更せず、ここで個別に配線する。
-window.addEventListener('DOMContentLoaded', () => {
-  const b1 = document.getElementById('btn-jump-corridor-start');
-  const b2 = document.getElementById('btn-jump-corridor-power');
-  const b3 = document.getElementById('btn-jump-guard-keypad');
-  if (b1) b1.addEventListener('click', debugJumpCorridorStart);
-  if (b2) b2.addEventListener('click', debugJumpCorridorPowerTest);
-  if (b3) b3.addEventListener('click', debugJumpGuardKeypadTest);
-});
-
 // ---------- action.type ディスパッチ ----------
 function handleCorridorAction(action, hs) {
   switch (action.type) {
@@ -236,36 +226,3 @@ function getCurrentCorridorHintId() {
   return fallback;
 }
 
-// ---------- テスト用ショートカット（開発用。仕様65：本番では無効化想定） ----------
-function debugJumpCorridorStart() {
-  state.cellStageCleared = true;
-  state.corridorStarted = true;
-  goScreen('CORRIDOR_1');
-  toast('［デバッグ］廊下開始状態にジャンプしました。');
-}
-
-function debugJumpCorridorPowerTest() {
-  state.cellStageCleared = true;
-  state.corridorStarted = true;
-  state.solved.corridorBedBox = true;
-  state.corridorBedBoxOpen = true;
-  state.corridorBedInput = PUZZLES.corridorBedInput.slice();
-  state.corridorBedCluesSeen = ['CORRIDOR_1_LEFT','CORRIDOR_1_RIGHT','CORRIDOR_2_LEFT','CORRIDOR_2_RIGHT','CORRIDOR_3_LEFT','CORRIDOR_3_RIGHT'];
-  state.guardSerialViewed = true;
-  Object.assign(state.items, { plate_b: true });
-  state.pickedUp.plate_b = true;
-  jumpToScreen('Z_BED_BOX_OPEN');
-  toast('［デバッグ］665入力テスト状態にジャンプしました。');
-}
-
-function debugJumpGuardKeypadTest() {
-  state.cellStageCleared = true;
-  state.corridorStarted = true;
-  state.solved.corridorBedBox = true;
-  state.corridorBedBoxOpen = true;
-  state.solved.corridorPowerCode = true;
-  state.guardRoomPowerOn = true;
-  state.guardBoardInspected = true;
-  jumpToScreen('Z_GUARD_KEYPAD');
-  toast('［デバッグ］看守室テンキーテスト状態にジャンプしました。');
-}

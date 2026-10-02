@@ -115,7 +115,7 @@ html, body {
   letter-spacing: .08em;
   text-align: center;
 }
-.title-settings-panel { z-index: 1250; }
+.overlay.title-settings-panel { z-index: 1250; }
 
 .opening-overlay {
   display: none;
@@ -211,10 +211,6 @@ html, body {
 .hotspot {
   position: absolute;
   cursor: pointer;
-}
-.hotspot.debug {
-  background: rgba(220, 60, 60, 0.28);
-  border: 1px solid rgba(255, 120, 120, 0.9);
 }
 
 .nav-arrow {
@@ -471,22 +467,6 @@ html, body {
 }
 .menu-note { font-size: 11px; color: #6b7480; }
 
-.debug-status {
-  display: none;
-  font-size: 11px;
-  line-height: 1.6;
-  color: #9fe0a0;
-  background: #0b0d10;
-  border: 1px solid #223027;
-  border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 10px;
-  max-height: 180px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.debug-status.show { display: block; }
 
 .clear-panel { text-align: center; padding: 40px 20px; }
 #clear-text { font-size: 20px; letter-spacing: 0.1em; margin-bottom: 10px; }
@@ -602,100 +582,6 @@ html, body {
   pointer-events: none;
   filter: drop-shadow(0 2px 3px rgba(0,0,0,0.55));
 }
-
-
-/* ============================================================
-   Hotspot 座標調整モード（開発用）
-   ============================================================ */
-#hotspot-debug-draw-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 100;
-  pointer-events: none;
-  touch-action: none;
-  cursor: crosshair;
-}
-#hotspot-debug-draw-layer.active {
-  /* 座標選択ONでも下のHotspotを直接クリックできるようにする */
-  pointer-events: none;
-}
-#stage-image-wrap.debug-coordinate-mode {
-  touch-action: none;
-  cursor: crosshair;
-}
-.hotspot-debug-selection {
-  position: absolute;
-  border: 2px solid #ff2f2f;
-  background: rgba(255, 40, 40, 0.18);
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.2);
-  pointer-events: none;
-}
-.hotspot.debug {
-  z-index: 90;
-  border: 2px solid #ff3030;
-  background: rgba(255, 30, 30, 0.16);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.16);
-}
-.hotspot.debug::after {
-  content: attr(data-label);
-  position: absolute;
-  left: 0;
-  top: 0;
-  max-width: 100%;
-  padding: 2px 4px;
-  background: rgba(175, 0, 0, 0.88);
-  color: #fff;
-  font-size: 9px;
-  line-height: 1.15;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-}
-.hotspot-coordinate-panel {
-  display: none;
-  position: fixed;
-  z-index: 120;
-  left: max(8px, var(--safe-left));
-  bottom: calc(58px + var(--safe-bottom));
-  width: min(360px, calc(100vw - 16px));
-  padding: 9px 10px;
-  border: 1px solid rgba(255, 75, 75, 0.75);
-  border-radius: 9px;
-  background: rgba(8, 10, 13, 0.94);
-  color: #f1f3f5;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  box-shadow: 0 5px 18px rgba(0,0,0,0.55);
-}
-.hotspot-coordinate-panel.show { display: block; }
-.coord-head { font-size: 12px; font-weight: 700; color: #ff8585; margin-bottom: 3px; }
-.coord-screen { font-size: 10px; color: #aeb8c4; margin-bottom: 5px; word-break: break-all; }
-.coord-values {
-  min-height: 34px;
-  padding: 6px 7px;
-  border-radius: 6px;
-  background: #050607;
-  border: 1px solid #292f37;
-  color: #baf4ba;
-  font-size: 11px;
-  line-height: 1.45;
-  user-select: text;
-  -webkit-user-select: text;
-  white-space: pre-wrap;
-}
-.coord-actions { display: flex; gap: 5px; margin-top: 6px; }
-.coord-actions button {
-  flex: 1 1 0;
-  min-width: 0;
-  border: 1px solid #383f48;
-  border-radius: 6px;
-  background: #1b2027;
-  color: #e6ebf0;
-  padding: 6px 4px;
-  font-size: 10px;
-}
-.coord-actions button:active { background: #2a313b; }
-
 
 
 /* ============================================================
@@ -1017,16 +903,6 @@ html, body {
     radial-gradient(ellipse at 55% 68%, rgba(0,0,0,0) 0 6%, rgba(0,0,0,.32) 10%, rgba(0,0,0,.82) 18%, rgba(0,0,0,.985) 31%),
     rgba(0,0,0,.70);
 }
-/* 開発用。座標調整中だけ暗幕を退避し、元画像と赤枠を確認できるようにする。 */
-#stage-image-wrap.debug-coordinate-mode .solitary-darkness-veil {
-  opacity: 0.08;
-  z-index: 10;
-}
-/* 赤枠は暗幕より必ず前面へ。 */
-.hotspot.debug {
-  z-index: 90;
-}
-
 .bucket-zoom-object {
   filter: drop-shadow(0 8px 12px rgba(0,0,0,0.55));
 }

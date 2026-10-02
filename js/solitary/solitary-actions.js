@@ -4,9 +4,6 @@
 // ============================================================
 
 window.addEventListener('DOMContentLoaded', () => {
-  const btn = document.getElementById('btn-jump-solitary-start');
-  if (btn) btn.addEventListener('click', debugJumpSolitaryStart);
-
   // レバーズームから「戻る」で離れた場合は、入力途中の回数を破棄する。
   // main.js の backZoom() より先に実行したいので capture フェーズで受ける。
   const backBtn = document.getElementById('btn-back');
@@ -318,41 +315,3 @@ function getCurrentSolitaryHintId() {
   return fallback;
 }
 
-function debugJumpSolitaryStart() {
-  state.capturedToSolitary = true;
-  state.plateCPicked = true;
-  state.solitaryLightOn = false;
-  state.solitaryInsertedPlate = null;
-  state.solitaryBucketTaken = false;
-  state.solitaryBucketBraced = false;
-  state.solitaryDoorUnlocked = false;
-  state.solitaryLeverPosition = 'center';
-  state.solitaryLeverSequence = [];
-  state.solitaryPassageOpen = false;
-  state.solitaryCleared = false;
-  state.solitaryWindowClueViewed = false;
-
-  state.solitaryBucketHandleTaken = false;
-  state.solitaryRopeTaken = false;
-  state.solitaryHandleInserted = false;
-  state.solitaryRopeSet = false;
-  state.solitaryLockRodRemoved = false;
-
-  state.items = state.items || {};
-  delete state.items.bucket;
-  delete state.items.bucket_no_handle;
-  delete state.items.bucket_handle;
-  delete state.items.rope;
-  Object.assign(state.items, { plate_a: true, plate_b: true, plate_c: true });
-
-  state.pickedUp = state.pickedUp || {};
-  Object.assign(state.pickedUp, { plate_a: true, plate_b: true, plate_c: true });
-
-  state.selectedItem = null;
-  state.detailItem = null;
-  state.screenStack = [];
-  state.currentScreen = 'SOLITARY_1';
-  render();
-  closeMenu();
-  toast('［デバッグ］プレートA/B/Cを所持してSTAGE4開始状態にしました。');
-}

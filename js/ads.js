@@ -1,22 +1,15 @@
 // ============================================================
 // ads.js — iOS AdMob (Capacitor) / UMP / Banner / Rewarded Hint
 // ============================================================
-// TestFlightでの初回確認中は必ず true のまま使用する。
-// App Store提出直前に、実機でテスト広告の動作確認後 false へ切り替える。
+// App Store release configuration.
 const ADMOB_CONFIG = {
-  isTesting: true,
+  isTesting: false,
 
   appId: 'ca-app-pub-8174756915786797~9805262814',
 
   production: {
     banner: 'ca-app-pub-8174756915786797/5291302738',
     rewardedHint: 'ca-app-pub-8174756915786797/7251165945',
-  },
-
-  // Google公式 iOS テスト広告ユニットID
-  test: {
-    banner: 'ca-app-pub-3940256099942544/2435281174',
-    rewardedHint: 'ca-app-pub-3940256099942544/1712485313',
   },
 };
 
@@ -46,18 +39,15 @@ function getAdMobPlugin() {
 }
 
 function getBannerAdId() {
-  return ADMOB_CONFIG.isTesting ? ADMOB_CONFIG.test.banner : ADMOB_CONFIG.production.banner;
+  return ADMOB_CONFIG.production.banner;
 }
 
 function getRewardedHintAdId() {
-  return ADMOB_CONFIG.isTesting ? ADMOB_CONFIG.test.rewardedHint : ADMOB_CONFIG.production.rewardedHint;
+  return ADMOB_CONFIG.production.rewardedHint;
 }
 
-function setAdDiagnostic(message) {
-  const el = document.getElementById('admob-diagnostic');
-  if (el) el.textContent = `AdMob診断：${message}`;
-  console.log('[AdMob]', message);
-}
+// Release build: on-screen AdMob diagnostics are disabled.
+function setAdDiagnostic(_message) {}
 
 function updatePrivacyOptionsButton() {
   const btn = document.getElementById('btn-ad-privacy');
@@ -72,7 +62,7 @@ function setBannerReserve(height) {
   el.style.height = `${h}px`;
   el.style.flexBasis = `${h}px`;
   // 実機ではHTMLの「AD」文字は使わない。ネイティブ広告だけを表示する。
-  el.textContent = isNativeAdPlatform() ? '' : 'AD';
+  el.textContent = '';
 }
 
 function registerBannerListeners(AdMob) {
@@ -137,7 +127,7 @@ async function showBannerAd() {
 
     // Adaptive bannerの実サイズ通知まで仮の予約領域を確保。失敗時は0へ戻す。
     setBannerReserve(60);
-    setAdDiagnostic('Google公式テストバナーをリクエスト中');
+    setAdDiagnostic('バナー広告をリクエスト中');
     await AdMob.showBanner({
       adId: getBannerAdId(),
       adSize: 'ADAPTIVE_BANNER',

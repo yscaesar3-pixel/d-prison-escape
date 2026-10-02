@@ -4,11 +4,6 @@
 
 const WALL_ORDER = ['WALL_1', 'WALL_2', 'WALL_3', 'WALL_4'];
 let inputLocked = false; // 仕様49：タップ連打対策
-let debugHotspots = false;
-let debugCoordinateMode = false;
-let debugSelection = null;
-let debugStatusVisible = false;
-let suppressHotspotClickUntil = 0;
 let pressedToiletKnob = null;
 let toiletButtonAnimating = false;
 let hasContinueSave = false;
@@ -68,38 +63,19 @@ function bindGlobalUI() {
   document.getElementById('btn-menu').addEventListener('click', toggleMenu);
   document.getElementById('menu-close').addEventListener('click', closeMenu);
   document.getElementById('btn-menu-return').addEventListener('click', closeMenu);
+  document.getElementById('btn-menu-title').addEventListener('click', returnToTitleFromMenu);
+
   const adPrivacyBtn = document.getElementById('btn-ad-privacy');
   if (adPrivacyBtn && typeof showAdPrivacyOptions === 'function') {
     adPrivacyBtn.addEventListener('click', showAdPrivacyOptions);
   }
+
   document.getElementById('btn-title-new').addEventListener('click', startNewGameFromTitle);
   document.getElementById('btn-title-continue').addEventListener('click', continueGameFromTitle);
   document.getElementById('btn-title-settings').addEventListener('click', openTitleSettings);
   document.getElementById('title-settings-close').addEventListener('click', closeTitleSettings);
   document.getElementById('opening-overlay').addEventListener('pointerdown', advanceOpeningOnTap);
-  document.getElementById('btn-reset').addEventListener('click', () => {
-    if (confirm('進行状況をリセットしますか？（開発用）')) {
-      resetState();
-      render();
-      closeMenu();
-    }
-  });
-  document.getElementById('btn-debug-hotspots').addEventListener('click', () => {
-    toggleDebugHotspots();
-  });
-  document.getElementById('btn-debug-coordinates').addEventListener('click', () => {
-    setDebugCoordinateMode(!debugCoordinateMode);
-  });
-  document.getElementById('btn-coord-copy').addEventListener('click', copyDebugCoordinates);
-  document.getElementById('btn-coord-clear').addEventListener('click', clearDebugSelection);
-  document.getElementById('btn-coord-hotspots').addEventListener('click', toggleDebugHotspots);
-  document.getElementById('btn-debug-status').addEventListener('click', () => {
-    debugStatusVisible = !debugStatusVisible;
-    document.getElementById('debug-status').classList.toggle('show', debugStatusVisible);
-    renderDebugStatus();
-  });
-  document.getElementById('btn-jump-mirror').addEventListener('click', debugJumpMirrorTest);
-  document.getElementById('btn-jump-finalkey').addEventListener('click', debugJumpFinalKeyTest);
+
   document.getElementById('item-detail-close').addEventListener('click', closeItemDetail);
   document.getElementById('hint-close').addEventListener('click', closeHintPanel);
   document.getElementById('btn-clear-return').addEventListener('click', returnToTitle);
@@ -107,8 +83,6 @@ function bindGlobalUI() {
   document.getElementById('memo-close').addEventListener('click', closeFloatingMemo);
   document.getElementById('memo-opacity').addEventListener('click', toggleMemoOpacity);
   document.getElementById('memo-clear').addEventListener('click', clearFloatingMemo);
-  bindHotspotCoordinateEditor();
-  updateDebugControlLabels();
 
   // 壁移動は画面上のナビゲーションボタンのみで行う。
   // iOSの横スワイプによる壁切替は使用しない。
@@ -313,254 +287,12 @@ function render() {
   renderHotspots(screen);
   renderInventory();
   updateHintButtonBadge();
-  renderDebugStatus();
-  updateDebugCoordinatePanel();
   // タイトルを表示しているだけの初回起動では、未開始の初期stateをセーブしない。
   if (!titleScreenActive) saveState();
   if (typeof syncBgmForCurrentScreen === 'function') syncBgmForCurrentScreen();
 
   if (state.cleared && !state.clearOverlayDismissed) showClearScreen();
 }
-
-// ---------- デバッグ表示（仕様64） ----------
-function renderDebugStatus() {
-  if (!debugStatusVisible) return;
-  const el = document.getElementById('debug-status');
-  if (!el) return;
-  const lines = [
-    'screenId: ' + state.currentScreen,
-    'stack: ' + JSON.stringify(state.screenStack),
-    'selectedItem: ' + (state.selectedItem || '-'),
-    'items: ' + (Object.keys(state.items).join(', ') || '(なし)'),
-    'pickedUp: ' + (Object.keys(state.pickedUp || {}).join(', ') || '(なし)'),
-    'solved: ' + JSON.stringify(state.solved),
-    'flags: doorOpen=' + state.doorOpen + ' pillowLifted=' + state.pillowLifted +
-      ' blanketOpen=' + state.blanketOpen + ' mattressPanelOpen=' + state.mattressPanelOpen +
-      ' wallRubbingDone=' + state.wallRubbingDone + ' drawerOpen=' + state.drawerOpen +
-      ' chairFlipped=' + state.chairFlipped + ' mirrorClean=' + state.mirrorClean +
-      ' coreOnMirror=' + state.coreOnMirror + ' mirrorRemoved=' + state.mirrorRemoved +
-      ' keyLocationFound=' + state.keyLocationFound + ' toiletPaperUses=' + state.toiletPaperUses,
-    'faucetHeights: ' + JSON.stringify(state.faucetHeights),
-    'hintProgress: ' + JSON.stringify(state.hintProgress),
-    'currentHintId: ' + (typeof getCurrentHintId === 'function' ? getCurrentHintId() : '-'),
-  ];
-  el.textContent = lines.join('\n');
-}
-
-
-// ---------- Hotspot 座標調整（開発用） ----------
-function toggleDebugHotspots() {
-  debugHotspots = !debugHotspots;
-  updateDebugControlLabels();
-  render();
-}
-
-function setDebugCoordinateMode(enabled) {
-  debugCoordinateMode = !!enabled;
-  const layer = document.getElementById('hotspot-debug-draw-layer');
-  const panel = document.getElementById('hotspot-coordinate-panel');
-  if (layer) layer.classList.toggle('active', debugCoordinateMode);
-  const wrap = document.getElementById('stage-image-wrap');
-  if (wrap) wrap.classList.toggle('debug-coordinate-mode', debugCoordinateMode);
-  if (panel) panel.classList.toggle('show', debugCoordinateMode);
-  updateDebugControlLabels();
-  if (debugCoordinateMode) {
-    // 座標調整時は既存Hotspotも見ながら合わせられるよう初回だけ赤枠をONにする。
-    if (!debugHotspots) {
-      debugHotspots = true;
-      renderHotspots(SCREENS[state.currentScreen]);
-    }
-    updateDebugCoordinatePanel();
-  }
-}
-
-function updateDebugControlLabels() {
-  const hotspotBtn = document.getElementById('btn-debug-hotspots');
-  const coordBtn = document.getElementById('btn-debug-coordinates');
-  const coordHotspotBtn = document.getElementById('btn-coord-hotspots');
-  if (hotspotBtn) hotspotBtn.textContent = `ホットスポット赤枠：${debugHotspots ? 'ON' : 'OFF'}（開発用）`;
-  if (coordBtn) coordBtn.textContent = `座標範囲選択：${debugCoordinateMode ? 'ON' : 'OFF'}（開発用）`;
-  if (coordHotspotBtn) coordHotspotBtn.textContent = `赤枠 ${debugHotspots ? 'OFFにする' : 'ONにする'}`;
-}
-
-
-function bindHotspotCoordinateEditor() {
-  const layer = document.getElementById('hotspot-debug-draw-layer');
-  const wrap = document.getElementById('stage-image-wrap');
-  if (!layer || !wrap || wrap.dataset.coordBound === '1') return;
-  wrap.dataset.coordBound = '1';
-
-  let start = null;
-  let startClient = null;
-  let currentPointerId = null;
-  let dragged = false;
-  const DRAG_THRESHOLD_PX = 7;
-
-  const normalizedPoint = (e) => {
-    const rect = wrap.getBoundingClientRect();
-    const clamp = (v) => Math.max(0, Math.min(1, v));
-    return {
-      x: clamp((e.clientX - rect.left) / rect.width),
-      y: clamp((e.clientY - rect.top) / rect.height),
-    };
-  };
-
-  const applySelection = (a, b) => {
-    const x = Math.min(a.x, b.x);
-    const y = Math.min(a.y, b.y);
-    const w = Math.abs(b.x - a.x);
-    const h = Math.abs(b.y - a.y);
-    debugSelection = { x, y, w, h };
-    renderDebugSelectionBox();
-    updateDebugCoordinatePanel();
-  };
-
-  // 調整モード中も通常Hotspotのクリックを生かす。
-  // 単純タップはそのままゲーム操作、ドラッグした時だけ座標選択として扱う。
-  wrap.addEventListener('pointerdown', (e) => {
-    if (!debugCoordinateMode) return;
-    currentPointerId = e.pointerId;
-    start = normalizedPoint(e);
-    startClient = { x: e.clientX, y: e.clientY };
-    dragged = false;
-    // 重要: pointerdown直後にはpointer captureしない。
-    // captureすると単純クリックまでwrapがターゲットになり、下のHotspotのclickを奪ってしまう。
-    // 実際にドラッグ判定になった時だけcaptureする。
-  }, true);
-
-  wrap.addEventListener('pointermove', (e) => {
-    if (!debugCoordinateMode || !start || e.pointerId !== currentPointerId) return;
-    const dx = e.clientX - startClient.x;
-    const dy = e.clientY - startClient.y;
-    if (!dragged && Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
-      dragged = true;
-      try { wrap.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
-    }
-    if (!dragged) return;
-    e.preventDefault();
-    applySelection(start, normalizedPoint(e));
-  }, true);
-
-  const finish = (e) => {
-    if (!start || e.pointerId !== currentPointerId) return;
-    if (debugCoordinateMode && dragged) {
-      e.preventDefault();
-      applySelection(start, normalizedPoint(e));
-      // ドラッグ終了直後にブラウザが生成するclickでHotspotが発火しないよう短時間だけ抑止。
-      suppressHotspotClickUntil = Date.now() + 350;
-    }
-    try { wrap.releasePointerCapture(e.pointerId); } catch (err) { /* noop */ }
-    start = null;
-    startClient = null;
-    currentPointerId = null;
-    dragged = false;
-  };
-  wrap.addEventListener('pointerup', finish, true);
-  wrap.addEventListener('pointercancel', finish, true);
-}
-
-function renderDebugSelectionBox() {
-  const layer = document.getElementById('hotspot-debug-draw-layer');
-  if (!layer) return;
-  layer.innerHTML = '';
-  if (!debugSelection) return;
-  const box = document.createElement('div');
-  box.className = 'hotspot-debug-selection';
-  box.style.left = `${debugSelection.x * 100}%`;
-  box.style.top = `${debugSelection.y * 100}%`;
-  box.style.width = `${debugSelection.w * 100}%`;
-  box.style.height = `${debugSelection.h * 100}%`;
-  layer.appendChild(box);
-}
-
-function formatDebugCoordinates(sel) {
-  if (!sel) return '';
-  const f = (v) => Number(v.toFixed(3)).toFixed(3);
-  return `{ x: ${f(sel.x)}, y: ${f(sel.y)}, w: ${f(sel.w)}, h: ${f(sel.h)} }`;
-}
-
-function updateDebugCoordinatePanel() {
-  const panel = document.getElementById('hotspot-coordinate-panel');
-  if (!panel) return;
-  panel.classList.toggle('show', debugCoordinateMode);
-  const screenEl = document.getElementById('coord-screen');
-  const valuesEl = document.getElementById('coord-values');
-  if (screenEl) screenEl.textContent = `screen: ${state.currentScreen}`;
-  if (valuesEl) {
-    valuesEl.textContent = debugSelection
-      ? formatDebugCoordinates(debugSelection)
-      : '画像上をドラッグして範囲を選択';
-  }
-  renderDebugSelectionBox();
-  updateDebugControlLabels();
-}
-
-function clearDebugSelection() {
-  debugSelection = null;
-  renderDebugSelectionBox();
-  updateDebugCoordinatePanel();
-}
-
-async function copyDebugCoordinates() {
-  if (!debugSelection) {
-    toast('先に画像上をドラッグして範囲を選択してください。');
-    return;
-  }
-  const text = formatDebugCoordinates(debugSelection);
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      ta.remove();
-    }
-    toast('座標をコピーしました。');
-  } catch (err) {
-    toast('コピーできませんでした。表示された座標を手動でコピーしてください。');
-  }
-}
-
-
-
-// ---------- テスト用ショートカット（仕様65：本番では完全無効化する想定） ----------
-function jumpToScreen(screenId) {
-  const stack = [];
-  let cur = SCREENS[screenId].parent;
-  while (cur) {
-    stack.unshift(cur);
-    cur = SCREENS[cur].parent;
-  }
-  state.screenStack = stack;
-  state.currentScreen = screenId;
-  render();
-}
-
-function debugJumpMirrorTest() {
-  // 鏡・蛇口謎の直前まで一気に進める
-  Object.assign(state.items, {
-    pencil: true, cloth_wet: true, toilet_paper_core_open: true,
-  });
-  state.mirrorClean = false;
-  state.coreOnMirror = false;
-  state.solved.faucet = false;
-  jumpToScreen('Z_W3_MIRROR');
-  toast('［デバッグ］鏡謎テスト状態にジャンプしました。');
-}
-
-function debugJumpFinalKeyTest() {
-  // 鍵回収の直前まで一気に進める
-  Object.assign(state.items, { retrieval_rod: true });
-  state.keyLocationFound = true;
-  jumpToScreen('WALL_1');
-  toast('［デバッグ］最終鍵回収テスト状態にジャンプしました。');
-}
-
 
 function buildDirectionalArrowSvg(dir) {
   const ns = 'http://www.w3.org/2000/svg';
@@ -637,7 +369,7 @@ function renderHotspots(screen) {
   if (hs.visibleIf && !hs.visibleIf(state)) return;
 
   const el = document.createElement('div');
-  el.className = 'hotspot' + (debugHotspots ? ' debug' : '');
+  el.className = 'hotspot';
 
   // 追加
   el.dataset.hotspotId = hs.id;
@@ -668,16 +400,10 @@ function renderHotspots(screen) {
     el.appendChild(overlayImg);
   }
 
-  if (debugHotspots) {
-    el.title = hs.label;
-    el.dataset.label = hs.label || hs.id || '';
-  }
-
   if (hs.layoutOnly) {
     el.style.pointerEvents = 'none';
   } else {
     el.addEventListener('click', () => {
-      if (Date.now() < suppressHotspotClickUntil) return;
       handleHotspotTap(hs);
     });
   }
@@ -1844,4 +1570,12 @@ function toggleMenu() {
 }
 function closeMenu() {
   document.getElementById('menu-panel').classList.remove('show');
+}
+
+function returnToTitleFromMenu() {
+  if (!confirm('タイトル画面に戻りますか？\n現在の進行状況は保存されます。')) return;
+  saveState();
+  hasContinueSave = true;
+  closeMenu();
+  showTitleScreen();
 }

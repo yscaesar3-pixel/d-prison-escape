@@ -4,15 +4,6 @@
 // corridor-actions.js の handleCorridorAction() default節から呼ばれる。
 // ============================================================
 
-window.addEventListener('DOMContentLoaded', () => {
-  const ids = ['btn-jump-guardroom-start', 'btn-jump-guard-monitor', 'btn-jump-guard-maze'];
-  const fns = [debugJumpGuardRoomStart, debugJumpGuardMonitorTest, debugJumpGuardMazeTest];
-  ids.forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener('click', fns[i]);
-  });
-});
-
 // ---------- STAGE2→STAGE3 接続：enterGuardRoom()を上書き ----------
 // 後から読み込まれるscriptの関数宣言が有効になる（corridor-actions.jsは変更しない）。
 function enterGuardRoom() {
@@ -458,44 +449,3 @@ function getCurrentGuardRoomHintId() {
   return fallback;
 }
 
-// ---------- テスト用ショートカット（開発用。仕様25：本番では無効化想定） ----------
-function debugJumpGuardRoomStart() {
-  state.cellStageCleared = true;
-  state.corridorStarted = true;
-  state.corridorCleared = true;
-  state.guardRoomStarted = true;
-  goScreen('GUARD_ROOM_1');
-  toast('［デバッグ］看守室開始状態にジャンプしました。');
-}
-
-function debugJumpGuardMonitorTest() {
-  debugJumpGuardRoomStart();
-  state.guardClockViewed = true;
-  state.guardScheduleViewed = true;
-  state.guardLockersViewed = true;
-  state.guardKeyNoteViewed = true;
-  state.guardScheduleSolved = true;
-  state.guardDrawerOpen = true;
-  Object.assign(state.items, { key_board_key: true, monitor_fuse: true });
-  state.pickedUp.key_board_key = true;
-  state.pickedUp.monitor_fuse = true;
-  state.guardKeyBoardUnlocked = true;
-  state.guardKeyOrder = PUZZLES.guardKeyOrder.slice();
-  state.guardKeyOrderSolved = true;
-  state.guardCabinetOpen = true;
-  jumpToScreen('Z_GUARD_MONITORS');
-  toast('［デバッグ］監視モニターテスト状態にジャンプしました。');
-}
-
-function debugJumpGuardMazeTest() {
-  debugJumpGuardMonitorTest();
-  state.guardMonitorSequenceSolved = true;
-  state.guardMonitorCabinetOpen = true;
-  Object.assign(state.items, { perforated_plate: true });
-  state.pickedUp.perforated_plate = true;
-  state.guardSchedulePlateUsed = true;
-  state.guardChannelSolved = true;
-  state.guardSpecialMonitorActive = true;
-  jumpToScreen('Z_GUARD_MAZE');
-  toast('［デバッグ］迷路テスト状態にジャンプしました。');
-}

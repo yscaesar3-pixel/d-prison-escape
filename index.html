@@ -58,7 +58,6 @@
     <div id="stage-image-wrap">
       <img id="stage-image" alt="game screen">
       <div id="hotspot-layer"></div>
-      <div id="hotspot-debug-draw-layer"></div>
       <div id="anim-overlay"></div>
     </div>
     <button id="btn-left" class="nav-arrow left">◀</button>
@@ -71,7 +70,7 @@
   <div id="inventory-bar" class="inventory-bar"></div>
 
   <!-- バナー広告予約領域（仕様44〜45） -->
-  <div id="ad-banner">AD</div>
+  <div id="ad-banner"></div>
 </div>
 
 <!-- 全ステージ共通 フローティングメモ -->
@@ -108,7 +107,7 @@
   </div>
 </div>
 
-<!-- メニュー（仕様33：後から拡張する仮ボタン／仕様64-65：開発用デバッグ機能） -->
+<!-- メニュー -->
 <div id="menu-panel" class="overlay small">
   <div class="overlay-panel">
     <button id="menu-close" class="overlay-close" aria-label="メニューを閉じる">×</button>
@@ -118,41 +117,10 @@
       <button id="btn-se-toggle" class="btn-secondary">効果音：ON</button>
     </div>
     <button id="btn-ad-privacy" class="btn-secondary" style="display:none;">広告プライバシー設定</button>
-    <div id="admob-diagnostic" class="debug-status show">AdMob診断：未初期化</div>
-    <button id="btn-reset" class="btn-secondary">進行状況をリセット（開発用）</button>
-    <button id="btn-debug-hotspots" class="btn-secondary">ホットスポット赤枠：OFF（開発用）</button>
-    <button id="btn-debug-coordinates" class="btn-secondary">座標範囲選択：OFF（開発用）</button>
-    <button id="btn-debug-status" class="btn-secondary">デバッグ情報表示切替（開発用）</button>
-    <div id="debug-status" class="debug-status"></div>
-    <p class="menu-note">テスト用ショートカット（本番では非表示にする想定）</p>
-    <button id="btn-jump-mirror" class="btn-secondary">鏡謎テスト状態へジャンプ</button>
-    <button id="btn-jump-finalkey" class="btn-secondary">最終鍵回収状態へジャンプ</button>
-    <button id="btn-jump-corridor-start" class="btn-secondary">廊下開始状態へジャンプ</button>
-    <button id="btn-jump-corridor-power" class="btn-secondary">665入力テスト状態へジャンプ</button>
-    <button id="btn-jump-guard-keypad" class="btn-secondary">看守室テンキーテスト状態へジャンプ</button>
-    <button id="btn-jump-guardroom-start" class="btn-secondary">STAGE3開始状態へジャンプ</button>
-    <button id="btn-jump-guard-monitor" class="btn-secondary">監視モニターテスト状態へジャンプ</button>
-    <button id="btn-jump-guard-maze" class="btn-secondary">迷路テスト状態へジャンプ</button>
-    <button id="btn-jump-solitary-start" class="btn-secondary">STAGE4開始状態へジャンプ（A/B/C所持）</button>
-    <button id="btn-jump-loading-start" class="btn-secondary">STAGE5開始状態へジャンプ（A/C所持）</button>
-    <button id="btn-jump-loading-final" class="btn-secondary">STAGE5最終謎クリア状態へジャンプ</button>
-    <p class="menu-note">設定・その他メニューは後日追加予定。</p>
+    <button id="btn-menu-title" class="btn-secondary">タイトルへ戻る</button>
     <button id="btn-menu-return" class="btn-primary">ゲームに戻る</button>
   </div>
 </div>
-
-<!-- ホットスポット座標調整パネル（開発用） -->
-<div id="hotspot-coordinate-panel" class="hotspot-coordinate-panel">
-  <div class="coord-head">Hotspot 座標調整</div>
-  <div id="coord-screen" class="coord-screen">-</div>
-  <div id="coord-values" class="coord-values">画像上をドラッグして範囲を選択</div>
-  <div class="coord-actions">
-    <button id="btn-coord-copy" type="button">コピー</button>
-    <button id="btn-coord-clear" type="button">クリア</button>
-    <button id="btn-coord-hotspots" type="button">赤枠 ON/OFF</button>
-  </div>
-</div>
-
 
 <!-- クリア画面 -->
 <div id="clear-overlay" class="overlay">
