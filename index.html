@@ -7,6 +7,42 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<!-- タイトル画面 -->
+<div id="title-screen" class="title-screen show" aria-hidden="false">
+  <img class="title-bg" src="assets/images/title/title_bg.webp" alt="">
+  <div class="title-shade"></div>
+  <div class="title-content">
+    <h1 class="title-logo">監獄からの脱出</h1>
+    <div class="title-menu">
+      <button id="btn-title-new" class="title-button" type="button">はじめから</button>
+      <button id="btn-title-continue" class="title-button" type="button">つづきから</button>
+      <button id="btn-title-settings" class="title-button title-button-sub" type="button">設定</button>
+    </div>
+  </div>
+  <div class="title-copyright">© 2026 YUTA SEKI</div>
+</div>
+
+<!-- オープニング -->
+<div id="opening-overlay" class="opening-overlay" aria-hidden="true">
+  <div id="opening-lines" class="opening-lines">
+    <p>……ここはどこだ？</p>
+    <p>気がつくと、冷たい牢屋の中にいた。</p>
+    <p>扉には鍵。周囲に人の気配はない。</p>
+    <p>ここから出る方法を探さなければ。</p>
+  </div>
+</div>
+
+<!-- タイトル画面用設定 -->
+<div id="title-settings-panel" class="overlay small title-settings-panel">
+  <div class="overlay-panel">
+    <button id="title-settings-close" class="overlay-close" aria-label="設定を閉じる">×</button>
+    <h2>設定</h2>
+    <div class="audio-settings">
+      <button id="title-bgm-toggle" class="btn-secondary">BGM：ON</button>
+      <button id="title-se-toggle" class="btn-secondary">効果音：ON</button>
+    </div>
+  </div>
+</div>
 <div id="app">
 
   <!-- 上部UI（仕様33） -->

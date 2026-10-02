@@ -405,11 +405,11 @@ function showBlackout(ms, done) {
 function pickupPlateC() {
   if (state.plateCPicked) return;
   state.plateCPicked = true;
-  lockInput(6000);
+  lockInput(7600);
   addItem('plate_c');
-  setTimeout(() => toast('……！'), 900);
-  setTimeout(() => toast('足音が近づいてくる。'), 2000);
-  setTimeout(() => toast('見つかった！'), 3400);
+  setTimeout(() => toast('……！'), 2200);
+  setTimeout(() => toast('足音が近づいてくる。'), 3300);
+  setTimeout(() => toast('見つかった！'), 4700);
   setTimeout(() => {
     showBlackout(1600, () => {
       state.capturedToSolitary = true;
@@ -419,7 +419,7 @@ function pickupPlateC() {
       setTimeout(() => toast('……気がつくと、薄暗い部屋の中だった。'), 250);
       setTimeout(() => toast('看守に捕まり、独居房へ放り込まれたようだ。'), 1850);
     });
-  }, 4300);
+  }, 5600);
 }
 
 // ---------- ヒント優先度（看守室用） ----------

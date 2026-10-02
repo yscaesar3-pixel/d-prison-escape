@@ -1,6 +1,7 @@
 from pathlib import Path
 import plistlib
 import re
+import shutil
 
 APP_ID = "ca-app-pub-8174756915786797~9805262814"
 APPLE_BUNDLE_ID = "com.yutaXXX.d-prison-escape"
@@ -57,6 +58,21 @@ if PBXPROJ.exists():
     )
     PBXPROJ.write_text(text, encoding="utf-8")
 
+
+# Replace the freshly generated Capacitor artwork with the approved prison assets.
+ASSET_CATALOG = Path("ios/App/App/Assets.xcassets")
+NATIVE_ASSETS = Path("native-assets/ios")
+for asset_name in ("AppIcon.appiconset", "Splash.imageset"):
+    src_dir = NATIVE_ASSETS / asset_name
+    dst_dir = ASSET_CATALOG / asset_name
+    if src_dir.exists():
+        if dst_dir.exists():
+            shutil.rmtree(dst_dir)
+        shutil.copytree(src_dir, dst_dir)
+        print(f"Installed iOS asset: {asset_name}")
+    else:
+        print(f"Warning: native asset not found: {src_dir}")
+
 # Keep the embedded Capacitor runtime config consistent with the real iOS Bundle ID.
 native_cap_config = Path("ios/App/App/capacitor.config.json")
 if native_cap_config.exists():
@@ -73,4 +89,4 @@ if native_cap_config.exists():
         print(f"Warning: could not update native capacitor.config.json: {exc}")
 
 print(f"Configured iOS Bundle ID: {APPLE_BUNDLE_ID}")
-print("Configured iOS: AdMob App ID, SKAdNetwork IDs, iPhone-only, portrait, iOS 15+, encryption declaration.")
+print("Configured iOS: AdMob App ID, SKAdNetwork IDs, iPhone-only, portrait, iOS 15+, encryption declaration, App Icon and Launch Screen assets.")

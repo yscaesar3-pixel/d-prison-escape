@@ -335,7 +335,7 @@ function loadingPlateSlot(index) {
   const map = { plate_a: 'A', plate_c: 'C', plate_d: 'D' };
   const letter = map[state.selectedItem];
   if (!letter || !state.items[state.selectedItem]) {
-    toast('A / C / Dのプレートを差し込めそうだ。');
+    // 3枚プレート装置は用途をプレイヤー自身に気付いてもらうため、未選択時はコメントを出さない。
     return;
   }
 

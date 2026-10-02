@@ -35,12 +35,73 @@ let currentBgmKey = null;
 let bgmAudio = null;
 let appAudioActive = true;
 let audioLifecycleInitialized = false;
+let bgmHold = false;
+let bgmPlayPending = false;
+let bgmRecoveryTimer = null;
+let bgmDetachedForBackground = false;
+let backgroundBgmTime = 0;
+let backgroundBgmKey = null;
 const activeSeAudios = new Set();
 
 function ensureAudioSettings() {
   const defaults = { bgmEnabled: true, seEnabled: true };
   state.audioSettings = Object.assign({}, defaults, state.audioSettings || {});
   return state.audioSettings;
+}
+
+function shouldBgmBePlaying() {
+  const settings = ensureAudioSettings();
+  return !!(
+    settings.bgmEnabled &&
+    audioUnlocked &&
+    appAudioActive &&
+    !bgmHold &&
+    currentBgmKey &&
+    AUDIO_PATHS.bgm[currentBgmKey]
+  );
+}
+
+function scheduleBgmRecovery(delay = 450) {
+  clearTimeout(bgmRecoveryTimer);
+  bgmRecoveryTimer = setTimeout(() => {
+    if (!shouldBgmBePlaying() || !bgmAudio || bgmDetachedForBackground) return;
+    if (bgmAudio.paused || bgmAudio.ended) safePlayBgm();
+  }, delay);
+}
+
+function attachBgmHealthListeners(audio) {
+  if (!audio || audio._prisonHealthListenersAttached) return;
+  audio._prisonHealthListenersAttached = true;
+
+  audio.addEventListener('playing', () => {
+    bgmPlayPending = false;
+  });
+  audio.addEventListener('pause', () => {
+    if (shouldBgmBePlaying()) scheduleBgmRecovery(350);
+  });
+  audio.addEventListener('stalled', () => scheduleBgmRecovery(650));
+  audio.addEventListener('suspend', () => {
+    if (audio.paused) scheduleBgmRecovery(650);
+  });
+  audio.addEventListener('error', () => scheduleBgmRecovery(900));
+  audio.addEventListener('ended', () => {
+    if (!shouldBgmBePlaying()) return;
+    try { audio.currentTime = 0; } catch (_) {}
+    safePlayBgm();
+  });
+}
+
+function safePlayBgm() {
+  if (!bgmAudio || !shouldBgmBePlaying() || bgmDetachedForBackground) return;
+  bgmAudio.loop = true;
+  bgmAudio.volume = AUDIO_VOLUME.bgm;
+  const playPromise = bgmAudio.play();
+  if (playPromise && typeof playPromise.catch === 'function') {
+    playPromise.catch(() => {
+      // iOS側で一時的に再生が拒否された場合、次のユーザー操作で再試行する。
+      bgmPlayPending = true;
+    });
+  }
 }
 
 function initAudioSystem() {
@@ -51,40 +112,112 @@ function initAudioSystem() {
     bgmAudio.loop = true;
     bgmAudio.preload = 'auto';
     bgmAudio.volume = AUDIO_VOLUME.bgm;
+    attachBgmHealthListeners(bgmAudio);
   }
 
   // iOS / mobile browserの自動再生制限対策。
-  const unlock = () => {
-    if (audioUnlocked) return;
-    audioUnlocked = true;
-    syncBgmForCurrentScreen();
-  };
-  document.addEventListener('pointerdown', unlock, { once: true, capture: true });
-  document.addEventListener('keydown', unlock, { once: true, capture: true });
-
-  const bgmBtn = document.getElementById('btn-bgm-toggle');
-  const seBtn = document.getElementById('btn-se-toggle');
-  if (bgmBtn) bgmBtn.addEventListener('click', () => {
-    const settings = ensureAudioSettings();
-    settings.bgmEnabled = !settings.bgmEnabled;
-    updateAudioSettingLabels();
-    saveState();
-    if (settings.bgmEnabled) {
-      audioUnlocked = true;
-      syncBgmForCurrentScreen(true);
-    } else if (bgmAudio) {
-      bgmAudio.pause();
+  // onceにせず、再生が失敗した場合にも次の操作で再試行できるようにする。
+  const unlockOrRetry = () => {
+    if (!audioUnlocked) audioUnlocked = true;
+    if (bgmPlayPending || (shouldBgmBePlaying() && bgmAudio && bgmAudio.paused)) {
+      bgmPlayPending = false;
+      safePlayBgm();
     }
-  });
-  if (seBtn) seBtn.addEventListener('click', () => {
-    const settings = ensureAudioSettings();
-    settings.seEnabled = !settings.seEnabled;
-    updateAudioSettingLabels();
-    saveState();
-  });
+  };
+  document.addEventListener('pointerdown', unlockOrRetry, { capture: true });
+  document.addEventListener('touchstart', unlockOrRetry, { capture: true, passive: true });
+  document.addEventListener('keydown', unlockOrRetry, { capture: true });
+
+  const bindToggle = (id, kind) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const settings = ensureAudioSettings();
+      if (kind === 'bgm') {
+        settings.bgmEnabled = !settings.bgmEnabled;
+        if (settings.bgmEnabled) {
+          audioUnlocked = true;
+          syncBgmForCurrentScreen(true);
+        } else if (bgmAudio) {
+          bgmPlayPending = false;
+          bgmAudio.pause();
+        }
+      } else {
+        settings.seEnabled = !settings.seEnabled;
+      }
+      updateAudioSettingLabels();
+      saveState();
+    });
+  };
+
+  bindToggle('btn-bgm-toggle', 'bgm');
+  bindToggle('btn-se-toggle', 'se');
+  bindToggle('title-bgm-toggle', 'bgm');
+  bindToggle('title-se-toggle', 'se');
 
   initAudioLifecycleHandling();
   updateAudioSettingLabels();
+}
+
+function releaseBgmForBackground() {
+  if (!bgmAudio) return;
+
+  backgroundBgmKey = currentBgmKey;
+  try {
+    backgroundBgmTime = Number.isFinite(bgmAudio.currentTime) ? bgmAudio.currentTime : 0;
+  } catch (_) {
+    backgroundBgmTime = 0;
+  }
+
+  try { bgmAudio.pause(); } catch (_) {}
+  bgmPlayPending = false;
+
+  // iOSのロック画面 / コントロールセンターにNow Playingカードを残さないため、
+  // バックグラウンド中はmedia elementからソース自体を切り離す。
+  try {
+    bgmAudio.removeAttribute('src');
+    bgmAudio.load();
+    bgmDetachedForBackground = true;
+  } catch (_) {
+    bgmDetachedForBackground = false;
+  }
+}
+
+function restoreBgmAfterBackground() {
+  if (!bgmAudio) return;
+
+  const desiredKey = getBgmKeyForState();
+  const restoreKey = desiredKey || backgroundBgmKey || currentBgmKey;
+  const src = restoreKey && AUDIO_PATHS.bgm[restoreKey];
+  if (!src) return;
+
+  currentBgmKey = restoreKey;
+  const resumeTime = backgroundBgmKey === restoreKey ? Math.max(0, Number(backgroundBgmTime) || 0) : 0;
+  bgmDetachedForBackground = false;
+
+  const restorePosition = () => {
+    try {
+      const duration = Number(bgmAudio.duration);
+      const safeTime = Number.isFinite(duration) && duration > 0
+        ? Math.min(resumeTime, Math.max(0, duration - 0.25))
+        : resumeTime;
+      bgmAudio.currentTime = safeTime;
+    } catch (_) {}
+    if (shouldBgmBePlaying()) safePlayBgm();
+  };
+
+  try {
+    bgmAudio.src = src;
+    bgmAudio.loop = true;
+    bgmAudio.preload = 'auto';
+    bgmAudio.volume = AUDIO_VOLUME.bgm;
+    bgmAudio.addEventListener('loadedmetadata', restorePosition, { once: true });
+    bgmAudio.load();
+    // ローカルファイルでloadedmetadataが既に利用可能な場合の保険。
+    if (bgmAudio.readyState >= 1) restorePosition();
+  } catch (_) {
+    scheduleBgmRecovery(500);
+  }
 }
 
 function initAudioLifecycleHandling() {
@@ -97,19 +230,21 @@ function initAudioLifecycleHandling() {
     appAudioActive = nextActive;
 
     if (!appAudioActive) {
-      if (bgmAudio && !bgmAudio.paused) bgmAudio.pause();
+      releaseBgmForBackground();
       activeSeAudios.forEach((audio) => {
         try {
           audio.pause();
           audio.currentTime = 0;
-        } catch (e) { /* noop */ }
+        } catch (_) {}
       });
       activeSeAudios.clear();
       return;
     }
 
-    // 復帰時は現在の曲・再生位置を維持したまま再開する。
-    if (ensureAudioSettings().bgmEnabled && audioUnlocked) {
+    // 復帰時は切り離した曲を元の再生位置へ戻して再開する。
+    if (bgmDetachedForBackground) {
+      restoreBgmAfterBackground();
+    } else if (ensureAudioSettings().bgmEnabled && audioUnlocked) {
       syncBgmForCurrentScreen(true);
     }
   };
@@ -136,10 +271,24 @@ function initAudioLifecycleHandling() {
 
 function updateAudioSettingLabels() {
   const settings = ensureAudioSettings();
-  const bgmBtn = document.getElementById('btn-bgm-toggle');
-  const seBtn = document.getElementById('btn-se-toggle');
-  if (bgmBtn) bgmBtn.textContent = `BGM：${settings.bgmEnabled ? 'ON' : 'OFF'}`;
-  if (seBtn) seBtn.textContent = `効果音：${settings.seEnabled ? 'ON' : 'OFF'}`;
+  ['btn-bgm-toggle', 'title-bgm-toggle'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.textContent = `BGM：${settings.bgmEnabled ? 'ON' : 'OFF'}`;
+  });
+  ['btn-se-toggle', 'title-se-toggle'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.textContent = `効果音：${settings.seEnabled ? 'ON' : 'OFF'}`;
+  });
+}
+
+function setBgmHold(held) {
+  bgmHold = !!held;
+  if (bgmHold) {
+    bgmPlayPending = false;
+    if (bgmAudio && !bgmAudio.paused) bgmAudio.pause();
+  } else if (audioUnlocked && ensureAudioSettings().bgmEnabled) {
+    syncBgmForCurrentScreen(true);
+  }
 }
 
 function getBgmKeyForState() {
@@ -156,24 +305,22 @@ function setBgmTrack(key, forcePlay = false) {
   const src = AUDIO_PATHS.bgm[key];
   if (!src || !bgmAudio) return;
 
-  if (currentBgmKey !== key) {
+  if (currentBgmKey !== key || bgmDetachedForBackground) {
     currentBgmKey = key;
+    if (!appAudioActive) return;
+    bgmDetachedForBackground = false;
     bgmAudio.pause();
     bgmAudio.src = src;
-    bgmAudio.currentTime = 0;
+    try { bgmAudio.currentTime = 0; } catch (_) {}
     bgmAudio.load();
   }
 
-  if (!settings.bgmEnabled || !audioUnlocked || !appAudioActive) {
+  if (!settings.bgmEnabled || !audioUnlocked || !appAudioActive || bgmHold) {
     bgmAudio.pause();
     return;
   }
 
-  if (bgmAudio.paused || forcePlay) {
-    bgmAudio.play().catch(() => {
-      // 初回ユーザー操作前など、ブラウザ側で拒否された場合は次の操作時に再試行する。
-    });
-  }
+  if (bgmAudio.paused || forcePlay) safePlayBgm();
 }
 
 function syncBgmForCurrentScreen(forcePlay = false) {
@@ -182,6 +329,7 @@ function syncBgmForCurrentScreen(forcePlay = false) {
 
 function playEndingBgm() {
   if (!audioUnlocked) audioUnlocked = true;
+  setBgmHold(false);
   setBgmTrack('ending', true);
 }
 

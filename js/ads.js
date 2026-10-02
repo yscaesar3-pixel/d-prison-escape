@@ -24,6 +24,7 @@ const adsState = {
   initialized: false,
   canRequestAds: false,
   bannerVisible: false,
+  bannerRequested: false,
   bannerListenersRegistered: false,
   rewardedReady: false,
   rewardedPreparing: false,
@@ -70,41 +71,72 @@ function setBannerReserve(height) {
   const h = Math.max(0, Number(height) || 0);
   el.style.height = `${h}px`;
   el.style.flexBasis = `${h}px`;
-  if (h > 0 && isNativeAdPlatform()) el.textContent = '';
+  // 実機ではHTMLの「AD」文字は使わない。ネイティブ広告だけを表示する。
+  el.textContent = isNativeAdPlatform() ? '' : 'AD';
 }
 
 function registerBannerListeners(AdMob) {
   if (adsState.bannerListenersRegistered) return;
   adsState.bannerListenersRegistered = true;
 
-  AdMob.addListener('bannerAdSizeChanged', (info) => {
-    if (info && Number(info.height) > 0) setBannerReserve(info.height);
-  }).catch(() => {});
+  if (!AdMob || typeof AdMob.addListener !== 'function') {
+    console.warn('[AdMob] banner listener API is unavailable');
+    return;
+  }
 
-  AdMob.addListener('bannerAdLoaded', () => {
+  const addSafe = (eventName, handler) => {
+    try {
+      const handle = AdMob.addListener(eventName, handler);
+      if (handle && typeof handle.catch === 'function') {
+        handle.catch((e) => console.warn(`[AdMob] ${eventName} listener registration failed`, e));
+      }
+    } catch (e) {
+      console.warn(`[AdMob] ${eventName} listener registration failed`, e);
+    }
+  };
+
+  addSafe('bannerAdSizeChanged', (info) => {
+    if (info && Number(info.height) > 0) {
+      setBannerReserve(info.height);
+      setAdDiagnostic(`バナーサイズ確定 / 高さ=${Number(info.height)}`);
+    }
+  });
+
+  addSafe('bannerAdLoaded', () => {
     adsState.bannerVisible = true;
+    adsState.bannerRequested = true;
     setAdDiagnostic('バナー広告の読み込み成功');
-  }).catch(() => {});
+  });
 
-  AdMob.addListener('bannerAdFailedToLoad', (error) => {
+  addSafe('bannerAdFailedToLoad', (error) => {
     adsState.bannerVisible = false;
+    adsState.bannerRequested = false;
     setBannerReserve(0);
-    setAdDiagnostic(`バナー広告の読み込み失敗${error && error.message ? ' / ' + error.message : ''}`);
-  }).catch(() => {});
+    const detail = error && (error.message || error.code) ? ` / ${error.message || error.code}` : '';
+    setAdDiagnostic(`バナー広告の読み込み失敗${detail}`);
+  });
 }
 
 async function showBannerAd() {
   const AdMob = getAdMobPlugin();
-  if (!AdMob || !adsState.initialized || !adsState.canRequestAds) return;
+  if (!AdMob || !adsState.initialized || !adsState.canRequestAds) {
+    setAdDiagnostic(`バナー要求を開始できません / initialized=${adsState.initialized} / canRequestAds=${adsState.canRequestAds}`);
+    return false;
+  }
 
+  // リスナー登録で例外が出ても、バナー要求そのものは止めない。
+  setAdDiagnostic('バナー要求開始');
   registerBannerListeners(AdMob);
 
   try {
-    if (adsState.bannerVisible) {
-      await AdMob.resumeBanner();
-      return;
+    if (adsState.bannerRequested) {
+      if (typeof AdMob.resumeBanner === 'function') await AdMob.resumeBanner();
+      setAdDiagnostic('既存バナーを再表示');
+      return true;
     }
 
+    // Adaptive bannerの実サイズ通知まで仮の予約領域を確保。失敗時は0へ戻す。
+    setBannerReserve(60);
     setAdDiagnostic('Google公式テストバナーをリクエスト中');
     await AdMob.showBanner({
       adId: getBannerAdId(),
@@ -114,11 +146,16 @@ async function showBannerAd() {
       isTesting: ADMOB_CONFIG.isTesting,
       npa: false,
     });
-    adsState.bannerVisible = true;
+    adsState.bannerRequested = true;
+    setAdDiagnostic('showBanner完了 / バナー読み込み待ち');
+    return true;
   } catch (e) {
     adsState.bannerVisible = false;
+    adsState.bannerRequested = false;
     setBannerReserve(0);
-    setAdDiagnostic(`バナー広告の表示失敗${e && e.message ? ' / ' + e.message : ''}`);
+    const detail = e && (e.message || e.code) ? ` / ${e.message || e.code}` : '';
+    setAdDiagnostic(`バナー広告の表示失敗${detail}`);
+    return false;
   }
 }
 
@@ -188,8 +225,11 @@ async function initAds() {
 
   if (!adsState.canRequestAds) return;
 
-  // バナーとリワードの準備はゲーム進行を止めない。
-  showBannerAd();
+  // 実機ではHTMLの広告プレースホルダー文字を消す。
+  setBannerReserve(0);
+
+  // バナー要求は診断結果が確実に残るようawaitする。リワードは続けて事前準備する。
+  await showBannerAd();
   prepareRewardedAd();
 }
 

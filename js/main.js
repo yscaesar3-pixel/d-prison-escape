@@ -11,6 +11,11 @@ let debugStatusVisible = false;
 let suppressHotspotClickUntil = 0;
 let pressedToiletKnob = null;
 let toiletButtonAnimating = false;
+let hasContinueSave = false;
+let titleScreenActive = true;
+let openingLineIndex = 0;
+let openingTimer = null;
+let openingFinishing = false;
 const pressAreaRects = {
   chair: {
     leftFront:  { x: 0.050, y: 0.105, w: 0.130, h: 0.100 },
@@ -44,12 +49,15 @@ const faucetBarRects = [
 // ---------- 起動 ----------
 window.addEventListener('DOMContentLoaded', () => {
   const restored = loadState();
+  hasContinueSave = restored;
   bindGlobalUI();
   initFloatingMemo();
   initAudioSystem();
+  // 起動直後は必ずタイトル画面。BGMはゲーム開始まで待機する。
+  if (typeof setBgmHold === 'function') setBgmHold(true);
   render();
+  showTitleScreen();
   if (typeof initAds === 'function') initAds();
-  if (restored) toast('前回の進行状況を復元しました。');
 });
 
 function bindGlobalUI() {
@@ -64,6 +72,11 @@ function bindGlobalUI() {
   if (adPrivacyBtn && typeof showAdPrivacyOptions === 'function') {
     adPrivacyBtn.addEventListener('click', showAdPrivacyOptions);
   }
+  document.getElementById('btn-title-new').addEventListener('click', startNewGameFromTitle);
+  document.getElementById('btn-title-continue').addEventListener('click', continueGameFromTitle);
+  document.getElementById('btn-title-settings').addEventListener('click', openTitleSettings);
+  document.getElementById('title-settings-close').addEventListener('click', closeTitleSettings);
+  document.getElementById('opening-overlay').addEventListener('pointerdown', advanceOpeningOnTap);
   document.getElementById('btn-reset').addEventListener('click', () => {
     if (confirm('進行状況をリセットしますか？（開発用）')) {
       resetState();
@@ -109,6 +122,144 @@ function bindGlobalUI() {
     if (isZoomed()) return; // ズーム中はスワイプ無効
     if (dx < 0) moveWall(1); else moveWall(-1);
   }, { passive: true });
+}
+
+// ---------- タイトル / オープニング ----------
+function updateTitleContinueButton() {
+  const btn = document.getElementById('btn-title-continue');
+  if (!btn) return;
+  btn.disabled = !hasContinueSave;
+  btn.setAttribute('aria-disabled', hasContinueSave ? 'false' : 'true');
+}
+
+function showTitleScreen() {
+  titleScreenActive = true;
+  const title = document.getElementById('title-screen');
+  if (title) {
+    title.classList.add('show');
+    title.setAttribute('aria-hidden', 'false');
+  }
+  const opening = document.getElementById('opening-overlay');
+  if (opening) {
+    opening.classList.remove('show', 'reveal-stage');
+    opening.setAttribute('aria-hidden', 'true');
+  }
+  closeTitleSettings();
+  const memo = ensureMemoState();
+  memo.open = false;
+  const memoWin = document.getElementById('memo-window');
+  if (memoWin) {
+    memoWin.classList.remove('show');
+    memoWin.setAttribute('aria-hidden', 'true');
+  }
+  updateTitleContinueButton();
+  if (typeof setBgmHold === 'function') setBgmHold(true);
+}
+
+function hideTitleScreen() {
+  titleScreenActive = false;
+  const title = document.getElementById('title-screen');
+  if (title) {
+    title.classList.remove('show');
+    title.setAttribute('aria-hidden', 'true');
+  }
+  closeTitleSettings();
+}
+
+function startNewGameFromTitle() {
+  if (hasContinueSave && !confirm('現在の進行状況を削除して最初から始めますか？')) return;
+  resetState();
+  state.runStartedAt = Date.now();
+  hasContinueSave = true;
+  render();
+  saveState();
+  hideTitleScreen();
+  playOpeningIntro();
+}
+
+function continueGameFromTitle() {
+  if (!hasContinueSave) return;
+  hideTitleScreen();
+  if (typeof setBgmHold === 'function') setBgmHold(false);
+  render();
+  setTimeout(() => toast('前回の進行状況を復元しました。'), 120);
+}
+
+function openTitleSettings() {
+  const panel = document.getElementById('title-settings-panel');
+  if (panel) panel.classList.add('show');
+  if (typeof updateAudioSettingLabels === 'function') updateAudioSettingLabels();
+}
+
+function closeTitleSettings() {
+  const panel = document.getElementById('title-settings-panel');
+  if (panel) panel.classList.remove('show');
+}
+
+function playOpeningIntro() {
+  clearTimeout(openingTimer);
+  openingLineIndex = 0;
+  openingFinishing = false;
+  if (typeof setBgmHold === 'function') setBgmHold(true);
+
+  const overlay = document.getElementById('opening-overlay');
+  const lines = Array.from(document.querySelectorAll('#opening-lines p'));
+  lines.forEach((line) => line.classList.remove('visible'));
+  if (!overlay) return;
+  overlay.classList.remove('reveal-stage');
+  overlay.classList.add('show');
+  overlay.setAttribute('aria-hidden', 'false');
+
+  openingTimer = setTimeout(showNextOpeningLine, 450);
+}
+
+function showNextOpeningLine() {
+  clearTimeout(openingTimer);
+  const lines = Array.from(document.querySelectorAll('#opening-lines p'));
+  if (openingLineIndex < lines.length) {
+    lines[openingLineIndex].classList.add('visible');
+    openingLineIndex += 1;
+    openingTimer = setTimeout(showNextOpeningLine, 1450);
+    return;
+  }
+  openingTimer = setTimeout(finishOpeningIntro, 1200);
+}
+
+function advanceOpeningOnTap() {
+  if (openingFinishing) return;
+  const overlay = document.getElementById('opening-overlay');
+  if (!overlay || !overlay.classList.contains('show')) return;
+  clearTimeout(openingTimer);
+  const lines = Array.from(document.querySelectorAll('#opening-lines p'));
+  if (openingLineIndex < lines.length) {
+    lines[openingLineIndex].classList.add('visible');
+    openingLineIndex += 1;
+    openingTimer = setTimeout(showNextOpeningLine, 900);
+  } else {
+    finishOpeningIntro();
+  }
+}
+
+function finishOpeningIntro() {
+  if (openingFinishing) return;
+  openingFinishing = true;
+  clearTimeout(openingTimer);
+  const overlay = document.getElementById('opening-overlay');
+  if (!overlay) return;
+  overlay.classList.add('reveal-stage');
+
+  // 牢屋が見え始めるタイミングでBGMを再開する。
+  setTimeout(() => {
+    if (typeof setBgmHold === 'function') setBgmHold(false);
+  }, 420);
+
+  setTimeout(() => {
+    overlay.classList.remove('show', 'reveal-stage');
+    overlay.setAttribute('aria-hidden', 'true');
+    openingFinishing = false;
+    state.runStartedAt = Date.now();
+    saveState();
+  }, 1450);
 }
 
 function isZoomed() {
@@ -174,7 +325,8 @@ function render() {
   updateHintButtonBadge();
   renderDebugStatus();
   updateDebugCoordinatePanel();
-  saveState();
+  // タイトルを表示しているだけの初回起動では、未開始の初期stateをセーブしない。
+  if (!titleScreenActive) saveState();
   if (typeof syncBgmForCurrentScreen === 'function') syncBgmForCurrentScreen();
 
   if (state.cleared && !state.clearOverlayDismissed) showClearScreen();
@@ -628,7 +780,12 @@ function addItem(itemId) {
   state.pickedUp = state.pickedUp || {};
   state.pickedUp[itemId] = true;
   if (typeof playSE === 'function') playSE('item_get');
-  toast((ITEMS[itemId] ? ITEMS[itemId].name : itemId) + ' を手に入れた。');
+  const itemName = ITEMS[itemId] ? ITEMS[itemId].name : itemId;
+  if (['plate_a', 'plate_b', 'plate_c'].includes(itemId)) {
+    toast(`${itemName}を手に入れた。ここでは使い道がなさそうだ。持っておこう。`);
+  } else {
+    toast(itemName + ' を手に入れた。');
+  }
   render();
 }
 
@@ -1425,12 +1582,10 @@ function showClearScreen() {
 }
 
 function returnToTitle() {
-  // 現行版は独立したタイトル画面を持たないため、タイトルへ戻る操作で
-  // セーブを初期化し、ゲーム開始状態へ戻す。
   document.getElementById('clear-overlay').classList.remove('show');
   resetState();
-  render();
-  saveState();
+  hasContinueSave = false;
+  showTitleScreen();
 }
 
 // ---------- 全ステージ共通 フローティングメモ ----------
@@ -1493,62 +1648,129 @@ function initFloatingMemo() {
   });
 
   let dragStart = null;
-  drag.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('button')) return;
-    const m = ensureMemoState();
-    dragStart = { id: e.pointerId, clientX: e.clientX, clientY: e.clientY, x: m.x, y: m.y };
-    try { drag.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
-    e.preventDefault();
-  });
-  drag.addEventListener('pointermove', (e) => {
-    if (!dragStart || e.pointerId !== dragStart.id) return;
+  const updateDrag = (clientX, clientY) => {
+    if (!dragStart) return;
     const m = ensureMemoState();
     const rect = clampMemoRect(
-      dragStart.x + (e.clientX - dragStart.clientX),
-      dragStart.y + (e.clientY - dragStart.clientY),
+      dragStart.x + (clientX - dragStart.clientX),
+      dragStart.y + (clientY - dragStart.clientY),
       m.width,
       m.height
     );
     Object.assign(m, rect);
     applyMemoLayout();
-    e.preventDefault();
-  });
-  const finishDrag = (e) => {
-    if (!dragStart || e.pointerId !== dragStart.id) return;
+  };
+  const finishDrag = () => {
+    if (!dragStart) return;
     dragStart = null;
     saveState();
   };
-  drag.addEventListener('pointerup', finishDrag);
-  drag.addEventListener('pointercancel', finishDrag);
 
-  let resizeStart = null;
-  resize.addEventListener('pointerdown', (e) => {
+  // iOS WKWebViewではelementのpointer captureがキーボード状態によって不安定になることがあるため、
+  // touchはwindow側で追跡し、キーボード非表示でも常に移動できるようにする。
+  drag.addEventListener('touchstart', (e) => {
+    if (e.target.closest('button') || !e.touches.length) return;
+    const t = e.touches[0];
     const m = ensureMemoState();
-    resizeStart = { id: e.pointerId, clientX: e.clientX, clientY: e.clientY, width: m.width, height: m.height };
-    try { resize.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    dragStart = { kind: 'touch', id: t.identifier, clientX: t.clientX, clientY: t.clientY, x: m.x, y: m.y };
     e.preventDefault();
     e.stopPropagation();
+  }, { passive: false });
+  window.addEventListener('touchmove', (e) => {
+    if (!dragStart || dragStart.kind !== 'touch') return;
+    const t = Array.from(e.touches).find((touch) => touch.identifier === dragStart.id);
+    if (!t) return;
+    updateDrag(t.clientX, t.clientY);
+    e.preventDefault();
+  }, { passive: false, capture: true });
+  window.addEventListener('touchend', (e) => {
+    if (!dragStart || dragStart.kind !== 'touch') return;
+    const ended = Array.from(e.changedTouches).some((touch) => touch.identifier === dragStart.id);
+    if (ended) finishDrag();
+  }, { capture: true });
+  window.addEventListener('touchcancel', () => {
+    if (dragStart && dragStart.kind === 'touch') finishDrag();
+  }, { capture: true });
+
+  drag.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch' || e.target.closest('button')) return;
+    const m = ensureMemoState();
+    dragStart = { kind: 'pointer', id: e.pointerId, clientX: e.clientX, clientY: e.clientY, x: m.x, y: m.y };
+    e.preventDefault();
   });
-  resize.addEventListener('pointermove', (e) => {
-    if (!resizeStart || e.pointerId !== resizeStart.id) return;
+  window.addEventListener('pointermove', (e) => {
+    if (!dragStart || dragStart.kind !== 'pointer' || e.pointerId !== dragStart.id) return;
+    updateDrag(e.clientX, e.clientY);
+    e.preventDefault();
+  }, { capture: true });
+  window.addEventListener('pointerup', (e) => {
+    if (dragStart && dragStart.kind === 'pointer' && e.pointerId === dragStart.id) finishDrag();
+  }, { capture: true });
+  window.addEventListener('pointercancel', (e) => {
+    if (dragStart && dragStart.kind === 'pointer' && e.pointerId === dragStart.id) finishDrag();
+  }, { capture: true });
+
+  let resizeStart = null;
+  const updateResize = (clientX, clientY) => {
+    if (!resizeStart) return;
     const m = ensureMemoState();
     const rect = clampMemoRect(
       m.x,
       m.y,
-      resizeStart.width + (e.clientX - resizeStart.clientX),
-      resizeStart.height + (e.clientY - resizeStart.clientY)
+      resizeStart.width + (clientX - resizeStart.clientX),
+      resizeStart.height + (clientY - resizeStart.clientY)
     );
     Object.assign(m, rect);
     applyMemoLayout();
-    e.preventDefault();
-  });
-  const finishResize = (e) => {
-    if (!resizeStart || e.pointerId !== resizeStart.id) return;
+  };
+  const finishResize = () => {
+    if (!resizeStart) return;
     resizeStart = null;
     saveState();
   };
-  resize.addEventListener('pointerup', finishResize);
-  resize.addEventListener('pointercancel', finishResize);
+
+  resize.addEventListener('touchstart', (e) => {
+    if (!e.touches.length) return;
+    const t = e.touches[0];
+    const m = ensureMemoState();
+    resizeStart = { kind: 'touch', id: t.identifier, clientX: t.clientX, clientY: t.clientY, width: m.width, height: m.height };
+    e.preventDefault();
+    e.stopPropagation();
+  }, { passive: false });
+  window.addEventListener('touchmove', (e) => {
+    if (!resizeStart || resizeStart.kind !== 'touch') return;
+    const t = Array.from(e.touches).find((touch) => touch.identifier === resizeStart.id);
+    if (!t) return;
+    updateResize(t.clientX, t.clientY);
+    e.preventDefault();
+  }, { passive: false, capture: true });
+  window.addEventListener('touchend', (e) => {
+    if (!resizeStart || resizeStart.kind !== 'touch') return;
+    const ended = Array.from(e.changedTouches).some((touch) => touch.identifier === resizeStart.id);
+    if (ended) finishResize();
+  }, { capture: true });
+  window.addEventListener('touchcancel', () => {
+    if (resizeStart && resizeStart.kind === 'touch') finishResize();
+  }, { capture: true });
+
+  resize.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') return;
+    const m = ensureMemoState();
+    resizeStart = { kind: 'pointer', id: e.pointerId, clientX: e.clientX, clientY: e.clientY, width: m.width, height: m.height };
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!resizeStart || resizeStart.kind !== 'pointer' || e.pointerId !== resizeStart.id) return;
+    updateResize(e.clientX, e.clientY);
+    e.preventDefault();
+  }, { capture: true });
+  window.addEventListener('pointerup', (e) => {
+    if (resizeStart && resizeStart.kind === 'pointer' && e.pointerId === resizeStart.id) finishResize();
+  }, { capture: true });
+  window.addEventListener('pointercancel', (e) => {
+    if (resizeStart && resizeStart.kind === 'pointer' && e.pointerId === resizeStart.id) finishResize();
+  }, { capture: true });
 
   window.addEventListener('resize', () => {
     if (!ensureMemoState().open) return;

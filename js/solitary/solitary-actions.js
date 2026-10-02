@@ -208,7 +208,7 @@ function solitaryWindowClue() {
     return;
   }
   state.solitaryWindowClueViewed = true;
-  toast('窓枠に「＼＼／＼＼／」のような傷が刻まれている。');
+  toast('窓の外に、わずかに景色が見える。');
   render();
 }
 
