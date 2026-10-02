@@ -91,6 +91,56 @@ function attachBgmHealthListeners(audio) {
   });
 }
 
+function createBgmAudioElement() {
+  const audio = new Audio();
+  audio.loop = true;
+  audio.preload = 'auto';
+  audio.volume = AUDIO_VOLUME.bgm;
+  attachBgmHealthListeners(audio);
+  return audio;
+}
+
+function clearIOSNowPlayingState() {
+  // Media Session API対応環境では明示的にNow Playing情報を破棄する。
+  try {
+    if ('mediaSession' in navigator) {
+      try { navigator.mediaSession.metadata = null; } catch (_) {}
+      try { navigator.mediaSession.playbackState = 'none'; } catch (_) {}
+      [
+        'play', 'pause', 'stop', 'seekbackward', 'seekforward',
+        'seekto', 'previoustrack', 'nexttrack'
+      ].forEach((action) => {
+        try { navigator.mediaSession.setActionHandler(action, null); } catch (_) {}
+      });
+    }
+  } catch (_) {}
+
+  // Safari / WKWebViewがAudio Session APIを持つ場合、メディア再生専用セッションを避ける。
+  // ambientはバックグラウンド再生を要求せず、ロック画面のメディアUIを持たせない用途に合う。
+  try {
+    if (navigator.audioSession && 'type' in navigator.audioSession) {
+      navigator.audioSession.type = 'ambient';
+    }
+  } catch (_) {}
+}
+
+function destroyBgmAudioElement() {
+  const oldAudio = bgmAudio;
+  bgmAudio = null;
+  if (!oldAudio) {
+    clearIOSNowPlayingState();
+    return;
+  }
+  try { oldAudio.pause(); } catch (_) {}
+  try { oldAudio.currentTime = 0; } catch (_) {}
+  try {
+    oldAudio.removeAttribute('src');
+    oldAudio.src = '';
+    oldAudio.load();
+  } catch (_) {}
+  clearIOSNowPlayingState();
+}
+
 function safePlayBgm() {
   if (!bgmAudio || !shouldBgmBePlaying() || bgmDetachedForBackground) return;
   bgmAudio.loop = true;
@@ -108,12 +158,9 @@ function initAudioSystem() {
   ensureAudioSettings();
 
   if (!bgmAudio) {
-    bgmAudio = new Audio();
-    bgmAudio.loop = true;
-    bgmAudio.preload = 'auto';
-    bgmAudio.volume = AUDIO_VOLUME.bgm;
-    attachBgmHealthListeners(bgmAudio);
+    bgmAudio = createBgmAudioElement();
   }
+  clearIOSNowPlayingState();
 
   // iOS / mobile browserの自動再生制限対策。
   // onceにせず、再生が失敗した場合にも次の操作で再試行できるようにする。
@@ -160,32 +207,27 @@ function initAudioSystem() {
 }
 
 function releaseBgmForBackground() {
-  if (!bgmAudio) return;
-
   backgroundBgmKey = currentBgmKey;
-  try {
-    backgroundBgmTime = Number.isFinite(bgmAudio.currentTime) ? bgmAudio.currentTime : 0;
-  } catch (_) {
+  if (bgmAudio) {
+    try {
+      backgroundBgmTime = Number.isFinite(bgmAudio.currentTime) ? bgmAudio.currentTime : 0;
+    } catch (_) {
+      backgroundBgmTime = 0;
+    }
+  } else {
     backgroundBgmTime = 0;
   }
 
-  try { bgmAudio.pause(); } catch (_) {}
   bgmPlayPending = false;
+  clearTimeout(bgmRecoveryTimer);
 
-  // iOSのロック画面 / コントロールセンターにNow Playingカードを残さないため、
-  // バックグラウンド中はmedia elementからソース自体を切り離す。
-  try {
-    bgmAudio.removeAttribute('src');
-    bgmAudio.load();
-    bgmDetachedForBackground = true;
-  } catch (_) {
-    bgmDetachedForBackground = false;
-  }
+  // iOSはpause + src解除だけではロック画面のNow Playingカードを保持することがある。
+  // バックグラウンド移行時はHTMLAudioElementそのものを破棄し、Media Sessionもクリアする。
+  destroyBgmAudioElement();
+  bgmDetachedForBackground = true;
 }
 
 function restoreBgmAfterBackground() {
-  if (!bgmAudio) return;
-
   const desiredKey = getBgmKeyForState();
   const restoreKey = desiredKey || backgroundBgmKey || currentBgmKey;
   const src = restoreKey && AUDIO_PATHS.bgm[restoreKey];
@@ -193,28 +235,36 @@ function restoreBgmAfterBackground() {
 
   currentBgmKey = restoreKey;
   const resumeTime = backgroundBgmKey === restoreKey ? Math.max(0, Number(backgroundBgmTime) || 0) : 0;
-  bgmDetachedForBackground = false;
 
+  // バックグラウンド時に破棄したAudioを毎回新規作成する。
+  // 以前のmedia elementを再利用しないことでiOSのNow Playingセッションを引き継がない。
+  if (bgmAudio) destroyBgmAudioElement();
+  bgmAudio = createBgmAudioElement();
+  bgmDetachedForBackground = false;
+  clearIOSNowPlayingState();
+
+  const audio = bgmAudio;
   const restorePosition = () => {
+    // 復帰中に別Audioへ差し替わっていたら何もしない。
+    if (bgmAudio !== audio) return;
     try {
-      const duration = Number(bgmAudio.duration);
+      const duration = Number(audio.duration);
       const safeTime = Number.isFinite(duration) && duration > 0
         ? Math.min(resumeTime, Math.max(0, duration - 0.25))
         : resumeTime;
-      bgmAudio.currentTime = safeTime;
+      audio.currentTime = safeTime;
     } catch (_) {}
     if (shouldBgmBePlaying()) safePlayBgm();
   };
 
   try {
-    bgmAudio.src = src;
-    bgmAudio.loop = true;
-    bgmAudio.preload = 'auto';
-    bgmAudio.volume = AUDIO_VOLUME.bgm;
-    bgmAudio.addEventListener('loadedmetadata', restorePosition, { once: true });
-    bgmAudio.load();
-    // ローカルファイルでloadedmetadataが既に利用可能な場合の保険。
-    if (bgmAudio.readyState >= 1) restorePosition();
+    audio.src = src;
+    audio.loop = true;
+    audio.preload = 'auto';
+    audio.volume = AUDIO_VOLUME.bgm;
+    audio.addEventListener('loadedmetadata', restorePosition, { once: true });
+    audio.load();
+    if (audio.readyState >= 1) restorePosition();
   } catch (_) {
     scheduleBgmRecovery(500);
   }
@@ -303,7 +353,9 @@ function getBgmKeyForState() {
 function setBgmTrack(key, forcePlay = false) {
   const settings = ensureAudioSettings();
   const src = AUDIO_PATHS.bgm[key];
-  if (!src || !bgmAudio) return;
+  if (!src) return;
+  if (!bgmAudio && appAudioActive) bgmAudio = createBgmAudioElement();
+  if (!bgmAudio) return;
 
   if (currentBgmKey !== key || bgmDetachedForBackground) {
     currentBgmKey = key;

@@ -110,18 +110,8 @@ function bindGlobalUI() {
   bindHotspotCoordinateEditor();
   updateDebugControlLabels();
 
-  // スワイプ対応（仕様34）
-  const stage = document.getElementById('stage-image-wrap');
-  let touchStartX = null;
-  stage.addEventListener('touchstart', (e) => { if (!debugCoordinateMode) touchStartX = e.touches[0].clientX; }, { passive: true });
-  stage.addEventListener('touchend', (e) => {
-    if (debugCoordinateMode || touchStartX === null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    touchStartX = null;
-    if (Math.abs(dx) < 40) return;
-    if (isZoomed()) return; // ズーム中はスワイプ無効
-    if (dx < 0) moveWall(1); else moveWall(-1);
-  }, { passive: true });
+  // 壁移動は画面上のナビゲーションボタンのみで行う。
+  // iOSの横スワイプによる壁切替は使用しない。
 }
 
 // ---------- タイトル / オープニング ----------
@@ -1647,136 +1637,161 @@ function initFloatingMemo() {
     saveState();
   });
 
-  let dragStart = null;
-  const updateDrag = (clientX, clientY) => {
-    if (!dragStart) return;
+  // iOS WKWebViewでtextareaのフォーカス有無に左右されないよう、
+  // メモ操作はdocumentのcaptureフェーズで座標から直接判定する。
+  // これによりゲーム側のhotspot / touch処理より先に移動・リサイズを確保する。
+  let gesture = null;
+
+  const pointInside = (x, y, rect) => (
+    x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+  );
+
+  const isMemoButtonAt = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    return !!(el && el.closest && el.closest('.memo-actions button'));
+  };
+
+  const beginGesture = (kind, id, clientX, clientY) => {
     const m = ensureMemoState();
-    const rect = clampMemoRect(
-      dragStart.x + (clientX - dragStart.clientX),
-      dragStart.y + (clientY - dragStart.clientY),
-      m.width,
-      m.height
-    );
-    Object.assign(m, rect);
+    // 念のため開始直前にも実座標をstateへ同期する。
+    const r = win.getBoundingClientRect();
+    const current = clampMemoRect(r.left, r.top, r.width, r.height);
+    Object.assign(m, current);
+    gesture = {
+      kind,
+      id,
+      clientX,
+      clientY,
+      x: current.x,
+      y: current.y,
+      width: current.width,
+      height: current.height,
+    };
+    win.classList.add('memo-manipulating');
+  };
+
+  const updateGesture = (clientX, clientY) => {
+    if (!gesture) return;
+    const m = ensureMemoState();
+    if (gesture.kind === 'drag') {
+      const rect = clampMemoRect(
+        gesture.x + (clientX - gesture.clientX),
+        gesture.y + (clientY - gesture.clientY),
+        gesture.width,
+        gesture.height
+      );
+      Object.assign(m, rect);
+    } else {
+      const rect = clampMemoRect(
+        gesture.x,
+        gesture.y,
+        gesture.width + (clientX - gesture.clientX),
+        gesture.height + (clientY - gesture.clientY)
+      );
+      Object.assign(m, rect);
+    }
     applyMemoLayout();
   };
-  const finishDrag = () => {
-    if (!dragStart) return;
-    dragStart = null;
+
+  const finishGesture = () => {
+    if (!gesture) return;
+    gesture = null;
+    win.classList.remove('memo-manipulating');
     saveState();
   };
 
-  // iOS WKWebViewではelementのpointer captureがキーボード状態によって不安定になることがあるため、
-  // touchはwindow側で追跡し、キーボード非表示でも常に移動できるようにする。
-  drag.addEventListener('touchstart', (e) => {
-    if (e.target.closest('button') || !e.touches.length) return;
-    const t = e.touches[0];
-    const m = ensureMemoState();
-    dragStart = { kind: 'touch', id: t.identifier, clientX: t.clientX, clientY: t.clientY, x: m.x, y: m.y };
-    e.preventDefault();
-    e.stopPropagation();
-  }, { passive: false });
-  window.addEventListener('touchmove', (e) => {
-    if (!dragStart || dragStart.kind !== 'touch') return;
-    const t = Array.from(e.touches).find((touch) => touch.identifier === dragStart.id);
-    if (!t) return;
-    updateDrag(t.clientX, t.clientY);
-    e.preventDefault();
-  }, { passive: false, capture: true });
-  window.addEventListener('touchend', (e) => {
-    if (!dragStart || dragStart.kind !== 'touch') return;
-    const ended = Array.from(e.changedTouches).some((touch) => touch.identifier === dragStart.id);
-    if (ended) finishDrag();
-  }, { capture: true });
-  window.addEventListener('touchcancel', () => {
-    if (dragStart && dragStart.kind === 'touch') finishDrag();
-  }, { capture: true });
+  const hitTestMemoGesture = (clientX, clientY) => {
+    if (!win.classList.contains('show')) return null;
+    const resizeRect = resize.getBoundingClientRect();
+    // 指で掴みやすいよう、リサイズ判定は見た目より少し広げる。
+    const resizeHit = {
+      left: resizeRect.left - 12,
+      top: resizeRect.top - 12,
+      right: resizeRect.right + 8,
+      bottom: resizeRect.bottom + 8,
+    };
+    if (pointInside(clientX, clientY, resizeHit)) return 'resize';
 
-  drag.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'touch' || e.target.closest('button')) return;
-    const m = ensureMemoState();
-    dragStart = { kind: 'pointer', id: e.pointerId, clientX: e.clientX, clientY: e.clientY, x: m.x, y: m.y };
-    e.preventDefault();
-  });
-  window.addEventListener('pointermove', (e) => {
-    if (!dragStart || dragStart.kind !== 'pointer' || e.pointerId !== dragStart.id) return;
-    updateDrag(e.clientX, e.clientY);
-    e.preventDefault();
-  }, { capture: true });
-  window.addEventListener('pointerup', (e) => {
-    if (dragStart && dragStart.kind === 'pointer' && e.pointerId === dragStart.id) finishDrag();
-  }, { capture: true });
-  window.addEventListener('pointercancel', (e) => {
-    if (dragStart && dragStart.kind === 'pointer' && e.pointerId === dragStart.id) finishDrag();
-  }, { capture: true });
-
-  let resizeStart = null;
-  const updateResize = (clientX, clientY) => {
-    if (!resizeStart) return;
-    const m = ensureMemoState();
-    const rect = clampMemoRect(
-      m.x,
-      m.y,
-      resizeStart.width + (clientX - resizeStart.clientX),
-      resizeStart.height + (clientY - resizeStart.clientY)
-    );
-    Object.assign(m, rect);
-    applyMemoLayout();
-  };
-  const finishResize = () => {
-    if (!resizeStart) return;
-    resizeStart = null;
-    saveState();
+    const dragRect = drag.getBoundingClientRect();
+    if (pointInside(clientX, clientY, dragRect) && !isMemoButtonAt(clientX, clientY)) return 'drag';
+    return null;
   };
 
-  resize.addEventListener('touchstart', (e) => {
-    if (!e.touches.length) return;
-    const t = e.touches[0];
-    const m = ensureMemoState();
-    resizeStart = { kind: 'touch', id: t.identifier, clientX: t.clientX, clientY: t.clientY, width: m.width, height: m.height };
+  // Pointer Events対応iOSではこちらを主経路にする。
+  document.addEventListener('pointerdown', (e) => {
+    if (gesture || !e.isPrimary) return;
+    const kind = hitTestMemoGesture(e.clientX, e.clientY);
+    if (!kind) return;
+    beginGesture(kind, e.pointerId, e.clientX, e.clientY);
+    try { win.setPointerCapture(e.pointerId); } catch (_) {}
     e.preventDefault();
     e.stopPropagation();
-  }, { passive: false });
-  window.addEventListener('touchmove', (e) => {
-    if (!resizeStart || resizeStart.kind !== 'touch') return;
-    const t = Array.from(e.touches).find((touch) => touch.identifier === resizeStart.id);
-    if (!t) return;
-    updateResize(t.clientX, t.clientY);
+  }, { capture: true, passive: false });
+
+  document.addEventListener('pointermove', (e) => {
+    if (!gesture || gesture.id !== e.pointerId) return;
+    updateGesture(e.clientX, e.clientY);
     e.preventDefault();
-  }, { passive: false, capture: true });
-  window.addEventListener('touchend', (e) => {
-    if (!resizeStart || resizeStart.kind !== 'touch') return;
-    const ended = Array.from(e.changedTouches).some((touch) => touch.identifier === resizeStart.id);
-    if (ended) finishResize();
-  }, { capture: true });
-  window.addEventListener('touchcancel', () => {
-    if (resizeStart && resizeStart.kind === 'touch') finishResize();
+    e.stopPropagation();
+  }, { capture: true, passive: false });
+
+  document.addEventListener('pointerup', (e) => {
+    if (!gesture || gesture.id !== e.pointerId) return;
+    try { win.releasePointerCapture(e.pointerId); } catch (_) {}
+    finishGesture();
+    e.preventDefault();
+    e.stopPropagation();
+  }, { capture: true, passive: false });
+
+  document.addEventListener('pointercancel', (e) => {
+    if (!gesture || gesture.id !== e.pointerId) return;
+    finishGesture();
   }, { capture: true });
 
-  resize.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'touch') return;
-    const m = ensureMemoState();
-    resizeStart = { kind: 'pointer', id: e.pointerId, clientX: e.clientX, clientY: e.clientY, width: m.width, height: m.height };
-    e.preventDefault();
-    e.stopPropagation();
-  });
-  window.addEventListener('pointermove', (e) => {
-    if (!resizeStart || resizeStart.kind !== 'pointer' || e.pointerId !== resizeStart.id) return;
-    updateResize(e.clientX, e.clientY);
-    e.preventDefault();
-  }, { capture: true });
-  window.addEventListener('pointerup', (e) => {
-    if (resizeStart && resizeStart.kind === 'pointer' && e.pointerId === resizeStart.id) finishResize();
-  }, { capture: true });
-  window.addEventListener('pointercancel', (e) => {
-    if (resizeStart && resizeStart.kind === 'pointer' && e.pointerId === resizeStart.id) finishResize();
-  }, { capture: true });
+  // Pointer Eventsがない古いWebView向けのtouch fallback。
+  if (!window.PointerEvent) {
+    document.addEventListener('touchstart', (e) => {
+      if (gesture || !e.touches.length) return;
+      const t = e.touches[0];
+      const kind = hitTestMemoGesture(t.clientX, t.clientY);
+      if (!kind) return;
+      beginGesture(kind, t.identifier, t.clientX, t.clientY);
+      e.preventDefault();
+      e.stopPropagation();
+    }, { capture: true, passive: false });
+
+    document.addEventListener('touchmove', (e) => {
+      if (!gesture) return;
+      const t = Array.from(e.touches).find((touch) => touch.identifier === gesture.id);
+      if (!t) return;
+      updateGesture(t.clientX, t.clientY);
+      e.preventDefault();
+      e.stopPropagation();
+    }, { capture: true, passive: false });
+
+    document.addEventListener('touchend', (e) => {
+      if (!gesture) return;
+      if (!Array.from(e.changedTouches).some((touch) => touch.identifier === gesture.id)) return;
+      finishGesture();
+      e.preventDefault();
+      e.stopPropagation();
+    }, { capture: true, passive: false });
+
+    document.addEventListener('touchcancel', finishGesture, { capture: true });
+  }
 
   window.addEventListener('resize', () => {
-    if (!ensureMemoState().open) return;
     applyMemoLayout();
     saveState();
   });
+
+  // iOSのソフトウェアキーボード開閉でvisual viewportが変化しても、
+  // キーボードを閉じた後にメモが画面外へ残らないようにする。
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => {
+      if (!textarea.matches(':focus')) applyMemoLayout();
+    });
+  }
 
   applyMemoLayout();
   if (memo.open) {

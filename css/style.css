@@ -1228,7 +1228,8 @@ html, body {
 .memo-window {
   display: none;
   position: fixed;
-  z-index: 900;
+  z-index: 2000;
+  isolation: isolate;
   min-width: 220px;
   min-height: 150px;
   max-width: 92vw;
@@ -1244,6 +1245,11 @@ html, body {
   pointer-events: auto;
 }
 .memo-window.show { display: flex; flex-direction: column; }
+.memo-window.memo-manipulating {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.memo-window.memo-manipulating .memo-textarea { pointer-events: none; }
 .memo-window.dim { background: rgba(18, 22, 28, .36); }
 .memo-window.dim .memo-header { background: rgba(9, 12, 16, .52); }
 .memo-window.dim .memo-textarea { background: rgba(6, 8, 10, .12); }
@@ -1299,8 +1305,8 @@ html, body {
   z-index: 5;
   right: 2px;
   bottom: 2px;
-  width: 24px;
-  height: 24px;
+  width: 38px;
+  height: 38px;
   cursor: nwse-resize;
   touch-action: none;
   pointer-events: auto;
@@ -1311,10 +1317,10 @@ html, body {
 .memo-resize-handle::after {
   content: '';
   position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 10px;
-  height: 10px;
+  right: 7px;
+  bottom: 7px;
+  width: 14px;
+  height: 14px;
   border-right: 2px solid rgba(255,255,255,.65);
   border-bottom: 2px solid rgba(255,255,255,.65);
 }
