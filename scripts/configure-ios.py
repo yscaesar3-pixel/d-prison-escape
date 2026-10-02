@@ -56,6 +56,24 @@ if PBXPROJ.exists():
         f'PRODUCT_BUNDLE_IDENTIFIER = {APPLE_BUNDLE_ID};',
         text,
     )
+
+    # Explicitly force the Xcode asset catalog to use the approved AppIcon set
+    # for every generated build configuration. Capacitor normally generates this
+    # setting, but keeping it explicit avoids falling back to a default/blank icon
+    # when the iOS project is recreated in Codemagic.
+    if re.search(r'ASSETCATALOG_COMPILER_APPICON_NAME\s*=', text):
+        text = re.sub(
+            r'ASSETCATALOG_COMPILER_APPICON_NAME\s*=\s*[^;]+;',
+            'ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;',
+            text,
+        )
+    else:
+        text = re.sub(
+            r'(PRODUCT_BUNDLE_IDENTIFIER = [^;]+;)',
+            r'\1\n\t\t\t\tASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;',
+            text,
+        )
+
     PBXPROJ.write_text(text, encoding="utf-8")
 
 
@@ -89,4 +107,11 @@ if native_cap_config.exists():
         print(f"Warning: could not update native capacitor.config.json: {exc}")
 
 print(f"Configured iOS Bundle ID: {APPLE_BUNDLE_ID}")
+if PBXPROJ.exists():
+    final_pbx = PBXPROJ.read_text(encoding="utf-8")
+    icon_settings = re.findall(r"ASSETCATALOG_COMPILER_APPICON_NAME\s*=\s*([^;]+);", final_pbx)
+    if icon_settings and all(v.strip() == "AppIcon" for v in icon_settings):
+        print(f"AppIcon build setting: AppIcon ({len(icon_settings)} configuration(s))")
+    else:
+        raise SystemExit(f"AppIcon build setting verification failed: {icon_settings}")
 print("Configured iOS: AdMob App ID, SKAdNetwork IDs, iPhone-only, portrait, iOS 15+, encryption declaration, App Icon and Launch Screen assets.")
