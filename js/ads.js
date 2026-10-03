@@ -1,7 +1,15 @@
 // ============================================================
 // ads.js — iOS AdMob (Capacitor) / UMP / Banner / Rewarded Hint
 // ============================================================
-// App Store release configuration.
+// Temporary production-AdMob diagnostic build.
+//
+// IMPORTANT:
+// - Production AdMob IDs are used.
+// - isTesting remains false.
+// - A temporary diagnostic panel is shown on screen.
+// - Remove the diagnostic panel before App Store release.
+// ============================================================
+
 const ADMOB_CONFIG = {
   isTesting: false,
 
@@ -13,17 +21,172 @@ const ADMOB_CONFIG = {
   },
 };
 
+// ------------------------------------------------------------
+// Temporary diagnostics
+// ------------------------------------------------------------
+
+const ADMOB_DIAGNOSTIC_ENABLED = true;
+
+const adDiagnosticHistory = [];
+
+function safeStringify(value) {
+  try {
+    if (value == null) return '';
+
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (value instanceof Error) {
+      return JSON.stringify({
+        name: value.name,
+        message: value.message,
+        stack: value.stack,
+      });
+    }
+
+    return JSON.stringify(value, (key, val) => {
+      if (typeof val === 'bigint') {
+        return String(val);
+      }
+      return val;
+    });
+  } catch (_) {
+    try {
+      return String(value);
+    } catch (_) {
+      return '[unserializable]';
+    }
+  }
+}
+
+function formatAdError(error) {
+  if (!error) {
+    return '詳細なし';
+  }
+
+  const parts = [];
+
+  if (error.code != null) {
+    parts.push(`code=${error.code}`);
+  }
+
+  if (error.message) {
+    parts.push(`message=${error.message}`);
+  }
+
+  if (error.domain) {
+    parts.push(`domain=${error.domain}`);
+  }
+
+  if (error.responseInfo) {
+    parts.push(`responseInfo=${safeStringify(error.responseInfo)}`);
+  }
+
+  if (parts.length === 0) {
+    parts.push(safeStringify(error));
+  }
+
+  return parts.join(' / ');
+}
+
+function ensureAdDiagnosticPanel() {
+  if (!ADMOB_DIAGNOSTIC_ENABLED) return null;
+
+  let panel = document.getElementById('admob-diagnostic-panel');
+
+  if (panel) {
+    return panel;
+  }
+
+  panel = document.createElement('div');
+  panel.id = 'admob-diagnostic-panel';
+
+  Object.assign(panel.style, {
+    position: 'fixed',
+    left: '8px',
+    right: '8px',
+    bottom: '90px',
+    zIndex: '999999',
+    maxHeight: '32vh',
+    overflowY: 'auto',
+    padding: '8px 10px',
+    borderRadius: '8px',
+    background: 'rgba(0, 0, 0, 0.82)',
+    color: '#ffffff',
+    fontSize: '11px',
+    lineHeight: '1.4',
+    fontFamily: 'monospace',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    pointerEvents: 'none',
+  });
+
+  panel.textContent = 'AdMob診断：待機中';
+
+  document.body.appendChild(panel);
+
+  return panel;
+}
+
+function setAdDiagnostic(message, detail = null) {
+  const timestamp = new Date().toLocaleTimeString();
+
+  let text = `[${timestamp}] ${message}`;
+
+  if (detail != null && detail !== '') {
+    text += `\n${safeStringify(detail)}`;
+  }
+
+  adDiagnosticHistory.push(text);
+
+  // Keep the panel reasonably small.
+  if (adDiagnosticHistory.length > 12) {
+    adDiagnosticHistory.shift();
+  }
+
+  console.log(`[AdMob] ${message}`, detail ?? '');
+
+  if (!ADMOB_DIAGNOSTIC_ENABLED) {
+    return;
+  }
+
+  const panel = ensureAdDiagnosticPanel();
+
+  if (panel) {
+    panel.textContent = adDiagnosticHistory.join('\n\n');
+    panel.scrollTop = panel.scrollHeight;
+  }
+}
+
+// Useful if Safari/Web Inspector or another console becomes available.
+window.__admobDebug = {
+  config: ADMOB_CONFIG,
+  history: adDiagnosticHistory,
+};
+
+// ------------------------------------------------------------
+// State
+// ------------------------------------------------------------
+
 const adsState = {
   initialized: false,
   canRequestAds: false,
+
   bannerVisible: false,
   bannerRequested: false,
   bannerListenersRegistered: false,
+
   rewardedReady: false,
   rewardedPreparing: false,
   rewardProcessing: false,
+
   privacyOptionsRequired: false,
 };
+
+// ------------------------------------------------------------
+// Platform / plugin
+// ------------------------------------------------------------
 
 function isNativeAdPlatform() {
   return !!(
@@ -35,7 +198,11 @@ function isNativeAdPlatform() {
 
 function getAdMobPlugin() {
   if (!isNativeAdPlatform()) return null;
-  return (window.Capacitor.Plugins && window.Capacitor.Plugins.AdMob) || null;
+
+  return (
+    window.Capacitor.Plugins &&
+    window.Capacitor.Plugins.AdMob
+  ) || null;
 }
 
 function getBannerAdId() {
@@ -46,242 +213,591 @@ function getRewardedHintAdId() {
   return ADMOB_CONFIG.production.rewardedHint;
 }
 
-// Release build: on-screen AdMob diagnostics are disabled.
-function setAdDiagnostic(_message) {}
+// ------------------------------------------------------------
+// Privacy options
+// ------------------------------------------------------------
 
 function updatePrivacyOptionsButton() {
   const btn = document.getElementById('btn-ad-privacy');
+
   if (!btn) return;
-  btn.style.display = adsState.privacyOptionsRequired ? '' : 'none';
+
+  btn.style.display = adsState.privacyOptionsRequired
+    ? ''
+    : 'none';
 }
+
+// ------------------------------------------------------------
+// Banner
+// ------------------------------------------------------------
 
 function setBannerReserve(height) {
   const el = document.getElementById('ad-banner');
+
   if (!el) return;
+
   const h = Math.max(0, Number(height) || 0);
+
   el.style.height = `${h}px`;
   el.style.flexBasis = `${h}px`;
-  // 実機ではHTMLの「AD」文字は使わない。ネイティブ広告だけを表示する。
+
+  // Native banner only.
   el.textContent = '';
 }
 
 function registerBannerListeners(AdMob) {
-  if (adsState.bannerListenersRegistered) return;
+  if (adsState.bannerListenersRegistered) {
+    return;
+  }
+
   adsState.bannerListenersRegistered = true;
 
   if (!AdMob || typeof AdMob.addListener !== 'function') {
-    console.warn('[AdMob] banner listener API is unavailable');
+    setAdDiagnostic(
+      'Banner listener API unavailable'
+    );
     return;
   }
 
   const addSafe = (eventName, handler) => {
     try {
-      const handle = AdMob.addListener(eventName, handler);
-      if (handle && typeof handle.catch === 'function') {
-        handle.catch((e) => console.warn(`[AdMob] ${eventName} listener registration failed`, e));
+      const handle = AdMob.addListener(
+        eventName,
+        handler
+      );
+
+      if (
+        handle &&
+        typeof handle.catch === 'function'
+      ) {
+        handle.catch((error) => {
+          setAdDiagnostic(
+            `${eventName} listener registration failed`,
+            formatAdError(error)
+          );
+        });
       }
-    } catch (e) {
-      console.warn(`[AdMob] ${eventName} listener registration failed`, e);
+    } catch (error) {
+      setAdDiagnostic(
+        `${eventName} listener registration failed`,
+        formatAdError(error)
+      );
     }
   };
 
   addSafe('bannerAdSizeChanged', (info) => {
-    if (info && Number(info.height) > 0) {
-      setBannerReserve(info.height);
-      setAdDiagnostic(`バナーサイズ確定 / 高さ=${Number(info.height)}`);
+    setAdDiagnostic(
+      'Banner size changed',
+      info
+    );
+
+    if (
+      info &&
+      Number(info.height) > 0
+    ) {
+      setBannerReserve(
+        Number(info.height)
+      );
     }
   });
 
-  addSafe('bannerAdLoaded', () => {
+  addSafe('bannerAdLoaded', (info) => {
     adsState.bannerVisible = true;
     adsState.bannerRequested = true;
-    setAdDiagnostic('バナー広告の読み込み成功');
+
+    setAdDiagnostic(
+      'Banner loaded SUCCESS',
+      info
+    );
   });
 
-  addSafe('bannerAdFailedToLoad', (error) => {
-    adsState.bannerVisible = false;
-    adsState.bannerRequested = false;
-    setBannerReserve(0);
-    const detail = error && (error.message || error.code) ? ` / ${error.message || error.code}` : '';
-    setAdDiagnostic(`バナー広告の読み込み失敗${detail}`);
-  });
+  addSafe(
+    'bannerAdFailedToLoad',
+    (error) => {
+      adsState.bannerVisible = false;
+      adsState.bannerRequested = false;
+
+      setBannerReserve(0);
+
+      setAdDiagnostic(
+        'Banner FAILED',
+        formatAdError(error)
+      );
+    }
+  );
 }
 
 async function showBannerAd() {
   const AdMob = getAdMobPlugin();
-  if (!AdMob || !adsState.initialized || !adsState.canRequestAds) {
-    setAdDiagnostic(`バナー要求を開始できません / initialized=${adsState.initialized} / canRequestAds=${adsState.canRequestAds}`);
+
+  setAdDiagnostic(
+    `Banner request check / initialized=${adsState.initialized} / canRequestAds=${adsState.canRequestAds}`
+  );
+
+  if (
+    !AdMob ||
+    !adsState.initialized ||
+    !adsState.canRequestAds
+  ) {
+    setAdDiagnostic(
+      'Banner request ABORTED'
+    );
+
     return false;
   }
 
-  // リスナー登録で例外が出ても、バナー要求そのものは止めない。
-  setAdDiagnostic('バナー要求開始');
   registerBannerListeners(AdMob);
 
   try {
     if (adsState.bannerRequested) {
-      if (typeof AdMob.resumeBanner === 'function') await AdMob.resumeBanner();
-      setAdDiagnostic('既存バナーを再表示');
+      if (
+        typeof AdMob.resumeBanner ===
+        'function'
+      ) {
+        await AdMob.resumeBanner();
+      }
+
+      setAdDiagnostic(
+        'Existing banner resumed'
+      );
+
       return true;
     }
 
-    // Adaptive bannerの実サイズ通知まで仮の予約領域を確保。失敗時は0へ戻す。
     setBannerReserve(60);
-    setAdDiagnostic('バナー広告をリクエスト中');
-    await AdMob.showBanner({
+
+    const options = {
       adId: getBannerAdId(),
       adSize: 'ADAPTIVE_BANNER',
       position: 'BOTTOM_CENTER',
       margin: 0,
       isTesting: ADMOB_CONFIG.isTesting,
       npa: false,
-    });
+    };
+
+    setAdDiagnostic(
+      'Banner request START',
+      {
+        adId: options.adId,
+        isTesting: options.isTesting,
+        adSize: options.adSize,
+      }
+    );
+
+    const result =
+      await AdMob.showBanner(options);
+
     adsState.bannerRequested = true;
-    setAdDiagnostic('showBanner完了 / バナー読み込み待ち');
+
+    setAdDiagnostic(
+      'showBanner() completed / waiting for bannerAdLoaded',
+      result
+    );
+
     return true;
-  } catch (e) {
+  } catch (error) {
     adsState.bannerVisible = false;
     adsState.bannerRequested = false;
+
     setBannerReserve(0);
-    const detail = e && (e.message || e.code) ? ` / ${e.message || e.code}` : '';
-    setAdDiagnostic(`バナー広告の表示失敗${detail}`);
+
+    setAdDiagnostic(
+      'showBanner() FAILED',
+      formatAdError(error)
+    );
+
     return false;
   }
 }
 
+// ------------------------------------------------------------
+// Rewarded
+// ------------------------------------------------------------
+
 async function prepareRewardedAd() {
   const AdMob = getAdMobPlugin();
-  if (!AdMob || !adsState.initialized || !adsState.canRequestAds || adsState.rewardedPreparing) return false;
+
+  setAdDiagnostic(
+    `Rewarded prepare check / initialized=${adsState.initialized} / canRequestAds=${adsState.canRequestAds} / preparing=${adsState.rewardedPreparing}`
+  );
+
+  if (
+    !AdMob ||
+    !adsState.initialized ||
+    !adsState.canRequestAds ||
+    adsState.rewardedPreparing
+  ) {
+    return false;
+  }
 
   adsState.rewardedReady = false;
   adsState.rewardedPreparing = true;
+
   try {
-    await AdMob.prepareRewardVideoAd({
+    const options = {
       adId: getRewardedHintAdId(),
       isTesting: ADMOB_CONFIG.isTesting,
       npa: false,
-    });
+    };
+
+    setAdDiagnostic(
+      'Rewarded prepare START',
+      {
+        adId: options.adId,
+        isTesting: options.isTesting,
+      }
+    );
+
+    const result =
+      await AdMob.prepareRewardVideoAd(
+        options
+      );
+
     adsState.rewardedReady = true;
+
+    setAdDiagnostic(
+      'Rewarded prepare SUCCESS',
+      result
+    );
+
     return true;
-  } catch (e) {
-    console.warn('[AdMob] リワード広告の事前ロード失敗', e);
+  } catch (error) {
     adsState.rewardedReady = false;
+
+    setAdDiagnostic(
+      'Rewarded prepare FAILED',
+      formatAdError(error)
+    );
+
+    console.warn(
+      '[AdMob] リワード広告の事前ロード失敗',
+      error
+    );
+
     return false;
   } finally {
     adsState.rewardedPreparing = false;
   }
 }
 
+// ------------------------------------------------------------
+// Initialization / UMP
+// ------------------------------------------------------------
+
 async function initAds() {
+  if (ADMOB_DIAGNOSTIC_ENABLED) {
+    ensureAdDiagnosticPanel();
+  }
+
+  setAdDiagnostic(
+    `initAds() / native=${isNativeAdPlatform()} / testing=${ADMOB_CONFIG.isTesting}`
+  );
+
   const AdMob = getAdMobPlugin();
 
-  // PCブラウザでは従来どおりゲーム検証を続けられる。
   if (!AdMob) {
-    setAdDiagnostic('Webプレビュー（AdMobは実機版で動作）');
+    setAdDiagnostic(
+      'Web preview / AdMob plugin unavailable'
+    );
     return;
   }
 
+  // SDK init
   try {
-    setAdDiagnostic('SDK初期化中');
-    await AdMob.initialize({ initializeForTesting: ADMOB_CONFIG.isTesting });
+    setAdDiagnostic(
+      'AdMob.initialize START'
+    );
+
+    const initResult =
+      await AdMob.initialize({
+        initializeForTesting:
+          ADMOB_CONFIG.isTesting,
+      });
+
     adsState.initialized = true;
-    setAdDiagnostic('SDK初期化済み / UMP確認中');
-  } catch (e) {
-    setAdDiagnostic(`SDK初期化失敗${e && e.message ? ' / ' + e.message : ''}`);
+
+    setAdDiagnostic(
+      'AdMob.initialize SUCCESS',
+      initResult
+    );
+  } catch (error) {
+    adsState.initialized = false;
+
+    setAdDiagnostic(
+      'AdMob.initialize FAILED',
+      formatAdError(error)
+    );
+
     return;
   }
 
+  // UMP
   let consentInfo = null;
+
   try {
-    consentInfo = await AdMob.requestConsentInfo();
-    if (consentInfo && consentInfo.isConsentFormAvailable && consentInfo.status === 'REQUIRED') {
-      consentInfo = await AdMob.showConsentForm();
+    setAdDiagnostic(
+      'UMP requestConsentInfo START'
+    );
+
+    consentInfo =
+      await AdMob.requestConsentInfo();
+
+    setAdDiagnostic(
+      'UMP requestConsentInfo SUCCESS',
+      consentInfo
+    );
+
+    if (
+      consentInfo &&
+      consentInfo.isConsentFormAvailable &&
+      consentInfo.status === 'REQUIRED'
+    ) {
+      setAdDiagnostic(
+        'UMP consent form START'
+      );
+
+      consentInfo =
+        await AdMob.showConsentForm();
+
+      setAdDiagnostic(
+        'UMP consent form FINISHED',
+        consentInfo
+      );
     }
 
-    adsState.canRequestAds = !!(consentInfo && consentInfo.canRequestAds);
-    adsState.privacyOptionsRequired = !!(
-      consentInfo && consentInfo.privacyOptionsRequirementStatus === 'REQUIRED'
-    );
+    adsState.canRequestAds =
+      !!(
+        consentInfo &&
+        consentInfo.canRequestAds
+      );
+
+    adsState.privacyOptionsRequired =
+      !!(
+        consentInfo &&
+        consentInfo
+          .privacyOptionsRequirementStatus ===
+          'REQUIRED'
+      );
+
     updatePrivacyOptionsButton();
 
     setAdDiagnostic(
-      `UMP確認成功 / status=${consentInfo && consentInfo.status ? consentInfo.status : 'UNKNOWN'} / canRequestAds=${adsState.canRequestAds}`
+      `UMP RESULT / status=${
+        consentInfo &&
+        consentInfo.status
+          ? consentInfo.status
+          : 'UNKNOWN'
+      } / canRequestAds=${
+        adsState.canRequestAds
+      } / privacyOptionsRequired=${
+        adsState.privacyOptionsRequired
+      }`,
+      consentInfo
     );
-  } catch (e) {
+  } catch (error) {
     adsState.canRequestAds = false;
-    setAdDiagnostic(`UMP確認失敗${e && e.message ? ' / ' + e.message : ''}`);
+
+    setAdDiagnostic(
+      'UMP FAILED',
+      formatAdError(error)
+    );
+
     return;
   }
 
-  if (!adsState.canRequestAds) return;
+  if (!adsState.canRequestAds) {
+    setAdDiagnostic(
+      'Ads NOT requested because canRequestAds=false'
+    );
 
-  // 実機ではHTMLの広告プレースホルダー文字を消す。
+    return;
+  }
+
   setBannerReserve(0);
 
-  // バナー要求は診断結果が確実に残るようawaitする。リワードは続けて事前準備する。
+  // Banner first so the result is easy to see.
   await showBannerAd();
-  prepareRewardedAd();
+
+  // Rewarded preload.
+  await prepareRewardedAd();
 }
+
+// ------------------------------------------------------------
+// Privacy options form
+// ------------------------------------------------------------
 
 async function showAdPrivacyOptions() {
   const AdMob = getAdMobPlugin();
-  if (!AdMob || !adsState.initialized) return;
+
+  if (
+    !AdMob ||
+    !adsState.initialized
+  ) {
+    return;
+  }
+
   try {
-    await AdMob.showPrivacyOptionsForm();
-  } catch (e) {
-    console.warn('[AdMob] プライバシー設定表示失敗', e);
+    setAdDiagnostic(
+      'Privacy options form START'
+    );
+
+    const result =
+      await AdMob.showPrivacyOptionsForm();
+
+    setAdDiagnostic(
+      'Privacy options form FINISHED',
+      result
+    );
+  } catch (error) {
+    setAdDiagnostic(
+      'Privacy options form FAILED',
+      formatAdError(error)
+    );
+
+    console.warn(
+      '[AdMob] プライバシー設定表示失敗',
+      error
+    );
   }
 }
 
-function setHintAdButtonEnabled(enabled, text) {
-  const btn = document.getElementById('hint-watch-ad');
+// ------------------------------------------------------------
+// Hint button
+// ------------------------------------------------------------
+
+function setHintAdButtonEnabled(
+  enabled,
+  text
+) {
+  const btn =
+    document.getElementById(
+      'hint-watch-ad'
+    );
+
   if (!btn) return;
+
   btn.disabled = !enabled;
-  if (text) btn.textContent = text;
+
+  if (text) {
+    btn.textContent = text;
+  }
 }
 
-async function requestHintViaRewardedAd(onReward) {
-  // PCブラウザでは開発効率を落とさないため、従来の模擬視聴を残す。
+// ------------------------------------------------------------
+// Rewarded hint playback
+// ------------------------------------------------------------
+
+async function requestHintViaRewardedAd(
+  onReward
+) {
+  // Browser development fallback.
   if (!isNativeAdPlatform()) {
-    setHintAdButtonEnabled(false, '広告を再生中……');
+    setHintAdButtonEnabled(
+      false,
+      '広告を再生中……'
+    );
+
     setTimeout(() => {
-      if (typeof onReward === 'function') onReward();
+      if (
+        typeof onReward === 'function'
+      ) {
+        onReward();
+      }
     }, 900);
+
     return;
   }
 
   const AdMob = getAdMobPlugin();
-  if (!AdMob || !adsState.initialized || !adsState.canRequestAds) {
-    alert('広告を準備できませんでした。通信環境を確認して、もう一度お試しください。');
+
+  setAdDiagnostic(
+    `Rewarded show requested / initialized=${adsState.initialized} / canRequestAds=${adsState.canRequestAds} / ready=${adsState.rewardedReady}`
+  );
+
+  if (
+    !AdMob ||
+    !adsState.initialized ||
+    !adsState.canRequestAds
+  ) {
+    setAdDiagnostic(
+      'Rewarded show ABORTED'
+    );
+
+    alert(
+      '広告を準備できませんでした。通信環境を確認して、もう一度お試しください。'
+    );
+
     return;
   }
-  if (adsState.rewardProcessing) return;
+
+  if (adsState.rewardProcessing) {
+    setAdDiagnostic(
+      'Rewarded show ignored / already processing'
+    );
+    return;
+  }
 
   adsState.rewardProcessing = true;
-  setHintAdButtonEnabled(false, '広告を準備中……');
+
+  setHintAdButtonEnabled(
+    false,
+    '広告を準備中……'
+  );
 
   let rewardEarned = false;
   let settled = false;
+
   const handles = [];
 
   const cleanup = async () => {
     for (const handle of handles) {
-      try { await handle.remove(); } catch (_) {}
+      try {
+        if (
+          handle &&
+          typeof handle.remove ===
+            'function'
+        ) {
+          await handle.remove();
+        }
+      } catch (_) {}
     }
+
     adsState.rewardProcessing = false;
   };
 
-  const finish = async (success, message) => {
+  const finish = async (
+    success,
+    message
+  ) => {
     if (settled) return;
+
     settled = true;
+
     await cleanup();
 
+    setAdDiagnostic(
+      `Rewarded flow FINISHED / success=${success} / rewardEarned=${rewardEarned}`
+    );
+
     if (success) {
-      if (typeof onReward === 'function') onReward();
+      if (
+        typeof onReward === 'function'
+      ) {
+        onReward();
+      }
     } else if (message) {
       alert(message);
-      if (typeof renderHintPanelContent === 'function') renderHintPanelContent();
-    } else if (typeof renderHintPanelContent === 'function') {
+
+      if (
+        typeof renderHintPanelContent ===
+        'function'
+      ) {
+        renderHintPanelContent();
+      }
+    } else if (
+      typeof renderHintPanelContent ===
+      'function'
+    ) {
       renderHintPanelContent();
     }
 
@@ -289,30 +805,115 @@ async function requestHintViaRewardedAd(onReward) {
   };
 
   try {
-    handles.push(await AdMob.addListener('onRewardedVideoAdReward', () => {
-      rewardEarned = true;
-    }));
-    handles.push(await AdMob.addListener('onRewardedVideoAdDismissed', () => {
-      finish(rewardEarned, null);
-    }));
-    handles.push(await AdMob.addListener('onRewardedVideoAdFailedToShow', () => {
-      finish(false, '広告を表示できませんでした。通信環境を確認して、もう一度お試しください。');
-    }));
+    handles.push(
+      await AdMob.addListener(
+        'onRewardedVideoAdReward',
+        (info) => {
+          rewardEarned = true;
+
+          setAdDiagnostic(
+            'Rewarded REWARD earned',
+            info
+          );
+        }
+      )
+    );
+
+    handles.push(
+      await AdMob.addListener(
+        'onRewardedVideoAdDismissed',
+        (info) => {
+          setAdDiagnostic(
+            'Rewarded DISMISSED',
+            info
+          );
+
+          finish(
+            rewardEarned,
+            null
+          );
+        }
+      )
+    );
+
+    handles.push(
+      await AdMob.addListener(
+        'onRewardedVideoAdFailedToShow',
+        (error) => {
+          setAdDiagnostic(
+            'Rewarded FAILED TO SHOW',
+            formatAdError(error)
+          );
+
+          finish(
+            false,
+            '広告を表示できませんでした。通信環境を確認して、もう一度お試しください。'
+          );
+        }
+      )
+    );
 
     if (!adsState.rewardedReady) {
-      setHintAdButtonEnabled(false, '広告を読み込み中……');
-      const prepared = await prepareRewardedAd();
+      setHintAdButtonEnabled(
+        false,
+        '広告を読み込み中……'
+      );
+
+      setAdDiagnostic(
+        'Rewarded not ready / preparing now'
+      );
+
+      const prepared =
+        await prepareRewardedAd();
+
       if (!prepared) {
-        await finish(false, '広告を読み込めませんでした。通信環境を確認して、もう一度お試しください。');
+        await finish(
+          false,
+          '広告を読み込めませんでした。通信環境を確認して、もう一度お試しください。'
+        );
+
         return;
       }
     }
 
     adsState.rewardedReady = false;
-    setHintAdButtonEnabled(false, '広告を再生中……');
-    await AdMob.showRewardVideoAd({ adId: getRewardedHintAdId() });
-  } catch (e) {
-    console.warn('[AdMob] リワード広告表示失敗', e);
-    await finish(false, '広告を表示できませんでした。通信環境を確認して、もう一度お試しください。');
+
+    setHintAdButtonEnabled(
+      false,
+      '広告を再生中……'
+    );
+
+    setAdDiagnostic(
+      'Rewarded show START',
+      {
+        adId: getRewardedHintAdId(),
+      }
+    );
+
+    const result =
+      await AdMob.showRewardVideoAd({
+        adId:
+          getRewardedHintAdId(),
+      });
+
+    setAdDiagnostic(
+      'showRewardVideoAd() returned',
+      result
+    );
+  } catch (error) {
+    setAdDiagnostic(
+      'Rewarded show EXCEPTION',
+      formatAdError(error)
+    );
+
+    console.warn(
+      '[AdMob] リワード広告表示失敗',
+      error
+    );
+
+    await finish(
+      false,
+      '広告を表示できませんでした。通信環境を確認して、もう一度お試しください。'
+    );
   }
 }
